@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply font-sans text-slate-700 bg-white;
+  }
+
+  h1 {
+    @apply text-4xl md:text-5xl font-bold text-slate-900;
+  }
+
+  h2 {
+    @apply text-2xl md:text-3xl font-bold text-slate-900;
+  }
+
+  h3 {
+    @apply text-xl md:text-2xl font-semibold text-slate-900;
+  }
+
+  p {
+    @apply leading-relaxed;
+  }
+}
+
+/* Font size scaling based on data attribute */
+[data-font-size="large"] {
+  @apply text-lg;
+
+  h1 {
+    @apply text-5xl md:text-6xl;
+  }
+
+  h2 {
+    @apply text-3xl md:text-4xl;
+  }
+
+  h3 {
+    @apply text-2xl md:text-3xl;
+  }
+}
+
+[data-font-size="extra-large"] {
+  @apply text-xl;
+
+  h1 {
+    @apply text-6xl md:text-7xl;
+  }
+
+  h2 {
+    @apply text-4xl md:text-5xl;
+  }
+
+  h3 {
+    @apply text-3xl md:text-4xl;
+  }
+}
