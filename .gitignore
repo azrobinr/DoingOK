@@ -1,0 +1,35 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local settings
+.claude/settings.local.json
+
+# Test artifacts
+/tmp/
+screenshots/
+*.png
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Temporary files
+*.tmp
+.cache/
+
+# Alpha/POC (if archiving old work)
+# alpha/ — uncomment if you want to exclude POC artifacts
