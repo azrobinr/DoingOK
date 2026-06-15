@@ -1,0 +1,183 @@
+// DoingOK — Prisma Schema
+// Full schema documentation: docs/architecture.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum CheckinStatus {
+  pending
+  completed
+  missed
+  late
+  skipped
+}
+
+enum AlertStatus {
+  triggered
+  acknowledged
+  resolved
+  expired
+}
+
+// ─────────────────────────────────────────────
+// MODELS
+// ─────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String    @unique
+  phone             String?
+  passwordHash      String
+  fullName          String
+  displayName       String?
+  timezone          String    @default("UTC")
+  isActive          Boolean   @default(true)
+  isVerified        Boolean   @default(false)
+  goalertServiceKey String?
+  createdAt         DateTime  @default(now()) @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @db.Timestamptz
+  deletedAt         DateTime? @db.Timestamptz
+
+  tosAcceptances   TosAcceptance[]
+  refreshTokens    RefreshToken[]
+  trustedContacts  TrustedContact[]
+  checkinSchedule  CheckinSchedule?
+  checkinEvents    CheckinEvent[]
+  alertEvents      AlertEvent[]
+  pushTokens       PushToken[]
+
+  @@map("users")
+}
+
+model TosAcceptance {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @db.Uuid
+  version    String
+  acceptedAt DateTime @default(now()) @db.Timestamptz
+  ipAddress  String
+  userAgent  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, version])
+  @@map("tos_acceptances")
+}
+
+model RefreshToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @db.Uuid
+  tokenHash  String    @unique
+  issuedAt   DateTime  @default(now()) @db.Timestamptz
+  expiresAt  DateTime  @db.Timestamptz
+  revokedAt  DateTime? @db.Timestamptz
+  deviceName String?
+  ipAddress  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model TrustedContact {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @db.Uuid
+  fullName       String
+  relationship   String?
+  phone          String?
+  email          String?
+  priorityOrder  Int      @default(1)
+  notifyViaSms   Boolean  @default(true)
+  notifyViaEmail Boolean  @default(false)
+  notifyViaCall  Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, priorityOrder])
+  @@map("trusted_contacts")
+}
+
+model CheckinSchedule {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @unique @db.Uuid
+  frequency      String   @default("daily")
+  scheduledHour  Int      @default(9)
+  windowMinutes  Int      @default(120)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("checkin_schedules")
+}
+
+model CheckinEvent {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String        @db.Uuid
+  scheduledAt DateTime      @db.Timestamptz
+  promptedAt  DateTime?     @db.Timestamptz
+  respondedAt DateTime?     @db.Timestamptz
+  status      CheckinStatus @default(pending)
+  notes       String?
+  createdAt   DateTime      @default(now()) @db.Timestamptz
+  updatedAt   DateTime      @updatedAt @db.Timestamptz
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertEvents AlertEvent[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("checkin_events")
+}
+
+model AlertEvent {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String      @db.Uuid
+  checkinEventId   String?     @db.Uuid
+  goalertDedupKey  String      @unique
+  status           AlertStatus @default(triggered)
+  escalationStep   Int?
+  triggeredAt      DateTime    @default(now()) @db.Timestamptz
+  acknowledgedAt   DateTime?   @db.Timestamptz
+  resolvedAt       DateTime?   @db.Timestamptz
+  resolvedBy       String?
+  resolutionNotes  String?
+  createdAt        DateTime    @default(now()) @db.Timestamptz
+  updatedAt        DateTime    @updatedAt @db.Timestamptz
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkinEvent CheckinEvent? @relation(fields: [checkinEventId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("alert_events")
+}
+
+model PushToken {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @db.Uuid
+  platform     String
+  token        String   @unique
+  deviceName   String?
+  registeredAt DateTime @default(now()) @db.Timestamptz
+  lastUsedAt   DateTime? @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
+}

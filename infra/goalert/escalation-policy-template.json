@@ -1,0 +1,23 @@
+{
+  "_comment": "Template for creating a per-user GoAlert escalation policy via GraphQL API. Replace all {placeholder} values at runtime.",
+  "query": "mutation CreateEscalationPolicy($input: CreateEscalationPolicyInput!) { createEscalationPolicy(input: $input) { id name } }",
+  "variables": {
+    "input": {
+      "name": "doingok-policy-{userId}",
+      "description": "Wellness alert escalation for DoingOK user {userId}",
+      "repeat": 2,
+      "steps": [
+        {
+          "_comment": "One entry per trusted contact, in priority_order",
+          "delayMinutes": 15,
+          "targets": [
+            {
+              "type": "user",
+              "id": "{goalertUserId}"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

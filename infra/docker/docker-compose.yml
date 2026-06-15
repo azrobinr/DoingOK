@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: doingok-postgres
+    environment:
+      POSTGRES_USER: doingok
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: doingok_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doingok"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  goalert:
+    image: goalert/all-in-one-demo
+    container_name: doingok-goalert
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
