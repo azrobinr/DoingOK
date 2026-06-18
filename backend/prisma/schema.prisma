@@ -1,0 +1,183 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email               String   @unique
+  phone               String?
+  passwordHash        String   @map("password_hash")
+  fullName            String   @map("full_name")
+  displayName         String?  @map("display_name")
+  timezone            String   @default("UTC")
+  isActive            Boolean  @default(true) @map("is_active")
+  isVerified          Boolean  @default(false) @map("is_verified")
+  goalertServiceKey   String?  @map("goalert_service_key")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz
+
+  tosAcceptances      TosAcceptance[]
+  refreshTokens       RefreshToken[]
+  trustedContacts     TrustedContact[]
+  checkinSchedule     CheckinSchedule?
+  checkinEvents       CheckinEvent[]
+  alertEvents         AlertEvent[]
+  pushTokens          PushToken[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model TosAcceptance {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  version   String
+  acceptedAt DateTime @default(now()) @map("accepted_at") @db.Timestamptz
+  ipAddress String   @map("ip_address")
+  userAgent String?  @map("user_agent")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, version])
+  @@index([userId])
+  @@map("tos_acceptances")
+}
+
+model RefreshToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  issuedAt  DateTime @default(now()) @map("issued_at") @db.Timestamptz
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+  deviceName String?  @map("device_name")
+  ipAddress String?   @map("ip_address")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model TrustedContact {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  fullName      String   @map("full_name")
+  relationship  String?
+  phone         String?
+  email         String?
+  priorityOrder Int      @map("priority_order") @default(1)
+  notifyViaSms  Boolean  @default(true) @map("notify_via_sms")
+  notifyViaEmail Boolean @default(false) @map("notify_via_email")
+  notifyViaCall Boolean  @default(false) @map("notify_via_call")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, priorityOrder])
+  @@index([userId])
+  @@map("trusted_contacts")
+}
+
+model CheckinSchedule {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @unique @map("user_id") @db.Uuid
+  frequency      String   @default("daily")
+  scheduledHour  Int      @default(9) @map("scheduled_hour")
+  windowMinutes  Int      @default(120) @map("window_minutes")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("checkin_schedules")
+}
+
+enum CheckinStatus {
+  pending
+  completed
+  missed
+  late
+  skipped
+
+  @@map("checkin_status")
+}
+
+model CheckinEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  scheduledAt DateTime @map("scheduled_at") @db.Timestamptz
+  promptedAt  DateTime? @map("prompted_at") @db.Timestamptz
+  respondedAt DateTime? @map("responded_at") @db.Timestamptz
+  status      CheckinStatus @default(pending)
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertEvent  AlertEvent?
+
+  @@index([userId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("checkin_events")
+}
+
+enum AlertStatus {
+  triggered
+  acknowledged
+  resolved
+  expired
+
+  @@map("alert_status")
+}
+
+model AlertEvent {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  checkinEventId   String?  @unique @map("checkin_event_id") @db.Uuid
+  goalertDedupKey  String   @unique @map("goalert_dedup_key")
+  status           AlertStatus @default(triggered)
+  escalationStep   Int?     @map("escalation_step")
+  triggeredAt      DateTime @default(now()) @map("triggered_at") @db.Timestamptz
+  acknowledgedAt   DateTime? @map("acknowledged_at") @db.Timestamptz
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz
+  resolvedBy       String?  @map("resolved_by")
+  resolutionNotes  String?  @map("resolution_notes")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkinEvent     CheckinEvent? @relation(fields: [checkinEventId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@map("alert_events")
+}
+
+model PushToken {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  platform    String
+  token       String   @unique
+  deviceName  String?  @map("device_name")
+  registeredAt DateTime @default(now()) @map("registered_at") @db.Timestamptz
+  lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
+}
