@@ -16,32 +16,26 @@ export function getPrismaInstance(): PrismaClient {
 export async function resetDatabase(): Promise<void> {
   const prisma = getPrismaInstance();
 
-  // Delete all data in dependency order (bottom-up from leaves to root)
-  // DELETE doesn't lock tables like TRUNCATE does, avoiding deadlocks
-  // Foreign key constraints handle cascading deletes
+  // Delete in reverse dependency order to handle foreign key constraints
+  // Start from leaf tables (no dependencies) and work up to root
   const tables = [
     'push_tokens',
     'refresh_tokens',
     'alert_events',
-    'tos_acceptances',
     'checkin_events',
+    'tos_acceptances',
     'checkin_schedules',
     'trusted_contacts',
     'users',
   ];
 
-  for (const table of tables) {
-    await prisma.$executeRawUnsafe(`DELETE FROM "${table}";`);
-  }
-
-  // Reset sequences for auto-increment if needed
+  // Delete all records from each table
   for (const table of tables) {
     try {
-      await prisma.$executeRawUnsafe(
-        `ALTER SEQUENCE "${table}_id_seq" RESTART WITH 1;`
-      );
-    } catch {
-      // Ignore if sequence doesn't exist (UUIDs don't use sequences)
+      await prisma.$executeRawUnsafe(`DELETE FROM "${table}";`);
+    } catch (error) {
+      // Log but continue - some tables might have dependencies
+      console.error(`Failed to delete from ${table}:`, error);
     }
   }
 }
