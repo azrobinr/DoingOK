@@ -16,6 +16,9 @@ export function getPrismaInstance(): PrismaClient {
 export async function resetDatabase(): Promise<void> {
   const prisma = getPrismaInstance();
 
+  // Disable foreign key constraints temporarily for faster truncation
+  await prisma.$executeRawUnsafe('SET session_replication_role = replica;');
+
   const tables = [
     'push_tokens',
     'alert_events',
@@ -27,9 +30,15 @@ export async function resetDatabase(): Promise<void> {
     'users',
   ];
 
-  for (const table of tables) {
-    await prisma.$executeRawUnsafe(`TRUNCATE TABLE "${table}" CASCADE;`);
-  }
+  // Truncate all tables in parallel for speed
+  await Promise.all(
+    tables.map((table) =>
+      prisma.$executeRawUnsafe(`TRUNCATE TABLE "${table}" RESTART IDENTITY;`)
+    )
+  );
+
+  // Re-enable foreign key constraints
+  await prisma.$executeRawUnsafe('SET session_replication_role = default;');
 }
 
 export async function disconnectDatabase(): Promise<void> {
