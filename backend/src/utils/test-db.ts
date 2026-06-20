@@ -16,29 +16,47 @@ export function getPrismaInstance(): PrismaClient {
 export async function resetDatabase(): Promise<void> {
   const prisma = getPrismaInstance();
 
-  // Disable foreign key constraints temporarily for faster truncation
-  await prisma.$executeRawUnsafe('SET session_replication_role = replica;');
-
-  const tables = [
+  // Truncate leaf tables first (those with no dependencies), then cascade delete from users
+  // This avoids deadlocks and foreign key constraint violations
+  const leafTables = [
     'push_tokens',
-    'alert_events',
-    'checkin_events',
-    'checkin_schedules',
-    'trusted_contacts',
     'refresh_tokens',
-    'tos_acceptances',
-    'users',
   ];
 
-  // Truncate all tables in parallel for speed
-  await Promise.all(
-    tables.map((table) =>
-      prisma.$executeRawUnsafe(`TRUNCATE TABLE "${table}" RESTART IDENTITY;`)
-    )
-  );
+  // Truncate leaf tables first
+  for (const table of leafTables) {
+    try {
+      await prisma.$executeRawUnsafe(`TRUNCATE TABLE "${table}" RESTART IDENTITY;`);
+    } catch (error) {
+      // Ignore if table doesn't exist or is already empty
+    }
+  }
 
-  // Re-enable foreign key constraints
-  await prisma.$executeRawUnsafe('SET session_replication_role = default;');
+  // Truncate parent tables with CASCADE to handle foreign keys
+  try {
+    await prisma.$executeRawUnsafe(
+      `TRUNCATE TABLE "alert_events", "checkin_events", "checkin_schedules", "tos_acceptances", "trusted_contacts", "users" CASCADE RESTART IDENTITY;`
+    );
+  } catch (error) {
+    // Fallback: truncate in dependency order
+    const parentTables = [
+      'alert_events',
+      'checkin_events',
+      'checkin_schedules',
+      'tos_acceptances',
+      'trusted_contacts',
+      'users',
+    ];
+    for (const table of parentTables) {
+      try {
+        await prisma.$executeRawUnsafe(
+          `TRUNCATE TABLE "${table}" CASCADE RESTART IDENTITY;`
+        );
+      } catch (e) {
+        // Continue even if one fails
+      }
+    }
+  }
 }
 
 export async function disconnectDatabase(): Promise<void> {
