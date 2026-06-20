@@ -16,7 +16,7 @@ COPY src ./src
 
 # Build
 RUN npm run build
-RUN npx prisma generate
+RUN npm run prisma:generate
 
 # Runtime stage
 FROM node:20-alpine
@@ -28,8 +28,8 @@ COPY package*.json ./
 COPY prisma ./prisma/
 
 # Install production dependencies only
-RUN npm ci --only=production
-RUN npx prisma generate
+RUN npm ci --omit=dev
+RUN npm run prisma:generate
 
 # Copy built app from builder
 COPY --from=builder /app/dist ./dist

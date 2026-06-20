@@ -1,4 +1,8 @@
+import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+
+// Load .env file for tests
+dotenv.config();
 
 let prismaInstance: PrismaClient | null = null;
 

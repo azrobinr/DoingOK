@@ -35,6 +35,8 @@ export const testContacts = {
     email: 'david@example.com',
     priorityOrder: 1,
     notifyViaSms: true,
+    notifyViaEmail: false,
+    notifyViaCall: false,
   },
   aliceDaughter: {
     fullName: 'Emma Smith',
@@ -42,7 +44,9 @@ export const testContacts = {
     phone: '+1-555-0202',
     email: 'emma@example.com',
     priorityOrder: 2,
+    notifyViaSms: false,
     notifyViaEmail: true,
+    notifyViaCall: false,
   },
   bobFriend: {
     fullName: 'Frank Brown',
@@ -51,6 +55,7 @@ export const testContacts = {
     email: 'frank@example.com',
     priorityOrder: 1,
     notifyViaSms: true,
+    notifyViaEmail: false,
     notifyViaCall: true,
   },
 };
