@@ -16,10 +16,10 @@ export function getPrismaInstance(): PrismaClient {
 export async function resetDatabase(): Promise<void> {
   const prisma = getPrismaInstance();
 
-  // Truncate all tables with CASCADE in correct order
-  // Start from users (has most dependencies) and cascade will handle the rest
+  // Truncate users table with CASCADE to clear all dependent tables
+  // RESTART IDENTITY must come before CASCADE in PostgreSQL
   await prisma.$executeRawUnsafe(
-    `TRUNCATE TABLE "users" CASCADE RESTART IDENTITY;`
+    `TRUNCATE TABLE "users" RESTART IDENTITY CASCADE;`
   );
 }
 
