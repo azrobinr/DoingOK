@@ -22,31 +22,6 @@ interface PushTokenRequest {
   deviceName?: string;
 }
 
-function requireAuth(fastify: FastifyInstance) {
-  return fastify.register(async (instance) => {
-    instance.addHook('preHandler', async (request, reply) => {
-      const token = request.headers.authorization?.split(' ')[1];
-      if (!token) {
-        return reply.status(401).send({ error: 'Not authenticated' });
-      }
-
-      try {
-        const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-        request.user = { userId: decoded.userId };
-      } catch (error) {
-        return reply.status(401).send({ error: 'Invalid token' });
-      }
-    });
-  });
-}
-
-declare global {
-  namespace Express {
-    interface Request {
-      user?: { userId: string };
-    }
-  }
-}
 
 export async function registerUserRoutes(fastify: FastifyInstance, prisma: PrismaClient) {
   // GET /users/:id

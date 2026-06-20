@@ -1,10 +1,10 @@
 import Fastify from 'fastify';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
-import { registerAuthRoutes } from './modules/auth';
-import { registerUserRoutes } from './modules/users';
-import { registerContactRoutes } from './modules/contacts';
-import { registerCheckinsRoutes } from './modules/checkins';
+import { registerAuthRoutes } from './modules/auth.js';
+import { registerUserRoutes } from './modules/users.js';
+import { registerContactRoutes } from './modules/contacts.js';
+import { registerCheckinsRoutes } from './modules/checkins.js';
 
 dotenv.config();
 
