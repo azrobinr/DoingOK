@@ -16,11 +16,34 @@ export function getPrismaInstance(): PrismaClient {
 export async function resetDatabase(): Promise<void> {
   const prisma = getPrismaInstance();
 
-  // Truncate users table with CASCADE to clear all dependent tables
-  // RESTART IDENTITY must come before CASCADE in PostgreSQL
-  await prisma.$executeRawUnsafe(
-    `TRUNCATE TABLE "users" RESTART IDENTITY CASCADE;`
-  );
+  // Delete all data in dependency order (bottom-up from leaves to root)
+  // DELETE doesn't lock tables like TRUNCATE does, avoiding deadlocks
+  // Foreign key constraints handle cascading deletes
+  const tables = [
+    'push_tokens',
+    'refresh_tokens',
+    'alert_events',
+    'tos_acceptances',
+    'checkin_events',
+    'checkin_schedules',
+    'trusted_contacts',
+    'users',
+  ];
+
+  for (const table of tables) {
+    await prisma.$executeRawUnsafe(`DELETE FROM "${table}";`);
+  }
+
+  // Reset sequences for auto-increment if needed
+  for (const table of tables) {
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER SEQUENCE "${table}_id_seq" RESTART WITH 1;`
+      );
+    } catch {
+      // Ignore if sequence doesn't exist (UUIDs don't use sequences)
+    }
+  }
 }
 
 export async function disconnectDatabase(): Promise<void> {
