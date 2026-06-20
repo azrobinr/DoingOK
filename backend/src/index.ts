@@ -1,5 +1,10 @@
 import Fastify from 'fastify';
 import dotenv from 'dotenv';
+import { PrismaClient } from '@prisma/client';
+import { registerAuthRoutes } from './modules/auth';
+import { registerUserRoutes } from './modules/users';
+import { registerContactRoutes } from './modules/contacts';
+import { registerCheckinsRoutes } from './modules/checkins';
 
 dotenv.config();
 
@@ -7,15 +12,27 @@ const fastify = Fastify({
   logger: true,
 });
 
+const prisma = new PrismaClient();
+
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
 
+// Health check endpoint
 fastify.get('/health', async (request, reply) => {
   return { status: 'ok' };
 });
 
+// Register all API modules
+const registerRoutes = async () => {
+  await registerAuthRoutes(fastify, prisma);
+  await registerUserRoutes(fastify, prisma);
+  await registerContactRoutes(fastify, prisma);
+  await registerCheckinsRoutes(fastify, prisma);
+};
+
 const start = async () => {
   try {
+    await registerRoutes();
     await fastify.listen({ port: PORT, host: HOST });
     console.log(`Server listening on http://${HOST}:${PORT}`);
   } catch (err) {
