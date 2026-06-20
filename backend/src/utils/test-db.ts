@@ -16,20 +16,11 @@ export function getPrismaInstance(): PrismaClient {
 export async function resetDatabase(): Promise<void> {
   const prisma = getPrismaInstance();
 
-  // Use a single TRUNCATE CASCADE statement to clear all tables at once
-  // CASCADE ensures all dependent tables are also truncated
-  await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE
-      "alert_events",
-      "checkin_events",
-      "checkin_schedules",
-      "tos_acceptances",
-      "trusted_contacts",
-      "refresh_tokens",
-      "push_tokens",
-      "users"
-    CASCADE RESTART IDENTITY;
-  `);
+  // Truncate all tables with CASCADE in correct order
+  // Start from users (has most dependencies) and cascade will handle the rest
+  await prisma.$executeRawUnsafe(
+    `TRUNCATE TABLE "users" CASCADE RESTART IDENTITY;`
+  );
 }
 
 export async function disconnectDatabase(): Promise<void> {
