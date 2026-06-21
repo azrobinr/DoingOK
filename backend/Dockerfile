@@ -27,12 +27,14 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Install production dependencies only
-RUN npm ci --omit=dev
-RUN npm run prisma:generate
+# Install all dependencies (prisma is needed for client generation)
+RUN npm ci
 
 # Copy built app from builder
 COPY --from=builder /app/dist ./dist
+
+# Generate Prisma client
+RUN npm run prisma:generate
 
 EXPOSE 3000
 
