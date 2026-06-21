@@ -1,0 +1,67 @@
+service: doingok-sandbox-manager
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  environment:
+    SLACK_BOT_TOKEN: ${env:SLACK_BOT_TOKEN}
+    SLACK_SIGNING_SECRET: ${env:SLACK_SIGNING_SECRET}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - ec2:DescribeInstances
+            - ec2:RunInstances
+            - ec2:StopInstances
+            - ec2:TerminateInstances
+            - ecs:RunTask
+            - ecs:StopTask
+            - ecs:ListTasks
+            - ecs:DescribeTasks
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: '*'
+
+functions:
+  slackEvents:
+    handler: infra/slack-sandbox-handler.handler
+    events:
+      - http:
+          path: /slack/events
+          method: post
+          cors: true
+    timeout: 30
+    memorySize: 512
+
+  sandboxCleanup:
+    handler: infra/sandbox-cleanup.handler
+    events:
+      - schedule:
+          rate: rate(30 minutes)
+          description: 'Cleanup expired sandboxes'
+    timeout: 60
+    memorySize: 256
+
+plugins:
+  - serverless-esbuild
+  - serverless-offline
+
+package:
+  individually: true
+  patterns:
+    - '!.git/**'
+    - '!node_modules/**'
+    - '!coverage/**'
+
+custom:
+  esbuild:
+    bundle: true
+    minify: true
+    keepNames: true
+    target: node20
+    sourcemap: true

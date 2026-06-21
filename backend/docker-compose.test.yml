@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: doingok-postgres-test
+    environment:
+      POSTGRES_USER: doingok
+      POSTGRES_PASSWORD: doingok
+      POSTGRES_DB: doingok_test
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doingok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: doingok-api-test
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://doingok:doingok@postgres-test:5432/doingok_test
+      NODE_ENV: test
+    ports:
+      - "3001:3000"
+    command: npm test
+
+volumes:
+  postgres_test_data:
