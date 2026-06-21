@@ -1,6 +1,10 @@
 version: '3.8'
 
 services:
+  # Override dev api to skip it during test runs
+  api:
+    profiles: ["dev-only"]
+
   postgres-test:
     image: postgres:16-alpine
     container_name: doingok-postgres-test
@@ -31,6 +35,10 @@ services:
       NODE_ENV: test
     ports:
       - "3001:3000"
+    volumes:
+      - ./src:/app/src
+      - ./vitest.config.ts:/app/vitest.config.ts
+      - ./prisma:/app/prisma
     command: npm test
 
 volumes:
