@@ -1,14 +1,25 @@
 import { useState } from 'react';
 
-export default function Navigation({ currentSection, onNavigate, fontSize, onFontSizeChange }) {
+export default function Navigation({ currentSection, onNavigate, fontSize, onFontSizeChange, user, onLogout }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
     { id: 'landing', label: 'Home', icon: '🏠' },
-    { id: 'signup', label: 'Sign Up', icon: '✍️' },
+    // Sign Up / Login only make sense when there is no active session.
+    ...(user
+      ? []
+      : [
+          { id: 'signup', label: 'Sign Up', icon: '✍️' },
+          { id: 'login', label: 'Log In', icon: '🔑' },
+        ]),
     { id: 'donor', label: 'Donate', icon: '❤️' },
     { id: 'faq', label: 'FAQ', icon: '❓' },
   ];
+
+  const handleLogout = () => {
+    setMobileMenuOpen(false);
+    onLogout?.();
+  };
 
   const fontSizes = [
     { value: 'normal', label: 'Normal', abbr: 'A' },
@@ -51,6 +62,20 @@ export default function Navigation({ currentSection, onNavigate, fontSize, onFon
                 {item.label}
               </button>
             ))}
+            {user && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-600">
+                  Hi, {user.fullName?.split(' ')[0] || user.email}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:text-primary-600"
+                >
+                  <span className="mr-1">🚪</span>
+                  Log Out
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Font Size Control */}
@@ -129,6 +154,15 @@ export default function Navigation({ currentSection, onNavigate, fontSize, onFon
                 {item.label}
               </button>
             ))}
+            {user && (
+              <button
+                onClick={handleLogout}
+                className="block w-full text-left px-4 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                <span className="mr-2">🚪</span>
+                Log Out ({user.fullName?.split(' ')[0] || user.email})
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -1,9 +1,14 @@
 import { useState } from 'react';
+import { register, acceptTos } from '../lib/api';
 
-export default function SignUp() {
+// Bump when the Terms of Service text changes; recorded in tos_acceptances.
+const TOS_VERSION = '2026-06';
+
+export default function SignUp({ onNavigate, onAuthSuccess }) {
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
+    password: '',
     phone: '',
     timezone: 'UTC',
   });
@@ -11,6 +16,8 @@ export default function SignUp() {
   const [tosAccepted, setTosAccepted] = useState(false);
   const [tosScrolled, setTosScrolled] = useState(false);
   const [formSubmitted, setFormSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -24,12 +31,32 @@ export default function SignUp() {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (tosAccepted) {
+    if (!tosAccepted || isSubmitting) return;
+
+    setError('');
+    setIsSubmitting(true);
+    try {
+      const { user } = await register({
+        fullName: formData.fullName,
+        email: formData.email,
+        password: formData.password,
+        phone: formData.phone || undefined,
+        timezone: formData.timezone,
+      });
+      // Record the user's acceptance of this TOS version (best-effort).
+      try {
+        await acceptTos(TOS_VERSION);
+      } catch {
+        // Non-fatal: the account exists; acceptance can be re-recorded later.
+      }
+      onAuthSuccess?.(user);
       setFormSubmitted(true);
-      // Here you would send the data to your backend
-      console.log('Form submitted:', formData);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -99,6 +126,27 @@ export default function SignUp() {
               </div>
 
               <div>
+                <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-2">
+                  Password *
+                </label>
+                <input
+                  type="password"
+                  id="password"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="••••••••"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  At least 8 characters, including an uppercase letter, a number, and a special character (!@#$%^&amp;*).
+                </p>
+              </div>
+
+              <div>
                 <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-2">
                   Phone Number (Optional)
                 </label>
@@ -128,12 +176,12 @@ export default function SignUp() {
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   <option value="UTC">UTC (Coordinated Universal Time)</option>
-                  <option value="EST">EST (Eastern Standard Time)</option>
-                  <option value="CST">CST (Central Standard Time)</option>
-                  <option value="MST">MST (Mountain Standard Time)</option>
-                  <option value="PST">PST (Pacific Standard Time)</option>
-                  <option value="AKST">AKST (Alaska Standard Time)</option>
-                  <option value="HST">HST (Hawaii Standard Time)</option>
+                  <option value="America/New_York">Eastern Time (ET)</option>
+                  <option value="America/Chicago">Central Time (CT)</option>
+                  <option value="America/Denver">Mountain Time (MT)</option>
+                  <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                  <option value="America/Anchorage">Alaska Time (AKT)</option>
+                  <option value="Pacific/Honolulu">Hawaii Time (HT)</option>
                 </select>
               </div>
             </div>
@@ -239,22 +287,39 @@ export default function SignUp() {
             </label>
           </div>
 
+          {/* Error message */}
+          {error && (
+            <div
+              role="alert"
+              className="mb-6 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700"
+            >
+              {error}
+            </div>
+          )}
+
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={!tosAccepted}
+            disabled={!tosAccepted || isSubmitting}
             className={`w-full py-3 rounded-lg font-semibold transition-colors ${
-              tosAccepted
+              tosAccepted && !isSubmitting
                 ? 'bg-primary-600 hover:bg-primary-700 text-white cursor-pointer'
                 : 'bg-slate-300 text-slate-500 cursor-not-allowed'
             }`}
           >
-            Create Account
+            {isSubmitting ? 'Creating Account…' : 'Create Account'}
           </button>
         </form>
 
         <p className="text-center text-slate-600 text-sm mt-8">
-          Already have an account? <a href="#" className="text-primary-600 hover:underline">Log in here</a>
+          Already have an account?{' '}
+          <button
+            type="button"
+            onClick={() => onNavigate?.('login')}
+            className="text-primary-600 hover:underline"
+          >
+            Log in here
+          </button>
         </p>
       </div>
     </div>

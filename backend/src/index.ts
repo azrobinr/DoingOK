@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import { registerAuthRoutes } from './modules/auth.js';
@@ -17,6 +18,11 @@ const prisma = new PrismaClient();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
 
+// Allowed web origins for CORS (comma-separated env, defaults to Vite dev server)
+const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim());
+
 // Health check endpoint
 fastify.get('/health', async (request, reply) => {
   return { status: 'ok' };
@@ -24,6 +30,10 @@ fastify.get('/health', async (request, reply) => {
 
 // Register all API modules
 const registerRoutes = async () => {
+  await fastify.register(cors, {
+    origin: CORS_ORIGINS,
+    credentials: true,
+  });
   await registerAuthRoutes(fastify, prisma);
   await registerUserRoutes(fastify, prisma);
   await registerContactRoutes(fastify, prisma);
