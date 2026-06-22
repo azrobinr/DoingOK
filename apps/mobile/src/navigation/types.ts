@@ -3,6 +3,13 @@ export type AuthStackParamList = {
   Register: undefined;
 };
 
-export type AppStackParamList = {
+export type ContactsStackParamList = {
+  ContactsList: undefined;
+  ContactDetail: { contactId?: string };
+};
+
+export type AppTabParamList = {
   Home: undefined;
+  Contacts: undefined;
+  Settings: undefined;
 };

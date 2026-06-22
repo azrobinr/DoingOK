@@ -1,15 +1,66 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View } from 'react-native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
-import { AuthStackParamList, AppStackParamList } from './types';
+import ContactsScreen from '../screens/ContactsScreen';
+import ContactDetailScreen from '../screens/ContactDetailScreen';
+import ScheduleScreen from '../screens/ScheduleScreen';
+import { AuthStackParamList, ContactsStackParamList, AppTabParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
-const AppStack = createNativeStackNavigator<AppStackParamList>();
+const ContactsStack = createNativeStackNavigator<ContactsStackParamList>();
+const Tab = createBottomTabNavigator<AppTabParamList>();
+
+function ContactsNavigator() {
+  return (
+    <ContactsStack.Navigator>
+      <ContactsStack.Screen
+        name="ContactsList"
+        component={ContactsScreen}
+        options={{ title: 'Trusted Contacts' }}
+      />
+      <ContactsStack.Screen
+        name="ContactDetail"
+        component={ContactDetailScreen}
+        options={({ route }) =>
+          ({ title: route.params?.contactId ? 'Edit Contact' : 'Add Contact' })
+        }
+      />
+    </ContactsStack.Navigator>
+  );
+}
+
+function AppNavigator() {
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        tabBarLabelStyle: { fontSize: 13 },
+        tabBarActiveTintColor: '#1a73e8',
+      }}
+    >
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{ headerShown: false, tabBarLabel: 'Check In', tabBarIcon: () => <Text>🏠</Text> }}
+      />
+      <Tab.Screen
+        name="Contacts"
+        component={ContactsNavigator}
+        options={{ headerShown: false, tabBarLabel: 'Contacts', tabBarIcon: () => <Text>👥</Text> }}
+      />
+      <Tab.Screen
+        name="Settings"
+        component={ScheduleScreen}
+        options={{ title: 'Schedule', tabBarLabel: 'Settings', tabBarIcon: () => <Text>⚙️</Text> }}
+      />
+    </Tab.Navigator>
+  );
+}
 
 function AuthNavigator() {
   return (
@@ -17,14 +68,6 @@ function AuthNavigator() {
       <AuthStack.Screen name="Login" component={LoginScreen} />
       <AuthStack.Screen name="Register" component={RegisterScreen} />
     </AuthStack.Navigator>
-  );
-}
-
-function AppNavigator() {
-  return (
-    <AppStack.Navigator screenOptions={{ headerShown: false }}>
-      <AppStack.Screen name="Home" component={HomeScreen} />
-    </AppStack.Navigator>
   );
 }
 

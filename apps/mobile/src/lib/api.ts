@@ -106,6 +106,99 @@ export async function completeCheckin(userId: string, eventId: string, notes?: s
   return res.json();
 }
 
+// --- Contacts ---
+
+export interface Contact {
+  id: string;
+  fullName: string;
+  relationship: string | null;
+  phone: string | null;
+  email: string | null;
+  priorityOrder: number;
+  notifyViaSms: boolean;
+  notifyViaEmail: boolean;
+  notifyViaCall: boolean;
+  isActive: boolean;
+}
+
+export async function getContacts(userId: string): Promise<Contact[]> {
+  const res = await authedFetch(`/users/${userId}/contacts`);
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+export async function createContact(
+  userId: string,
+  data: Omit<Contact, 'id' | 'isActive'>
+): Promise<Contact> {
+  const res = await authedFetch(`/users/${userId}/contacts`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+export async function updateContact(
+  userId: string,
+  contactId: string,
+  data: Partial<Omit<Contact, 'id'>>
+): Promise<Contact> {
+  const res = await authedFetch(`/users/${userId}/contacts/${contactId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+export async function deleteContact(userId: string, contactId: string): Promise<void> {
+  const res = await authedFetch(`/users/${userId}/contacts/${contactId}`, { method: 'DELETE' });
+  if (!res.ok) throw await res.json();
+}
+
+// --- Schedule ---
+
+export interface Schedule {
+  id: string;
+  frequency: string;
+  scheduledHour: number;
+  windowMinutes: number;
+  escalationDelayMinutes: number;
+  isActive: boolean;
+}
+
+export async function getSchedule(userId: string): Promise<Schedule | null> {
+  const res = await authedFetch(`/users/${userId}/checkin-schedule`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+export async function createSchedule(
+  userId: string,
+  data: Omit<Schedule, 'id'>
+): Promise<Schedule> {
+  const res = await authedFetch(`/users/${userId}/checkin-schedule`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+export async function updateSchedule(
+  userId: string,
+  data: Partial<Omit<Schedule, 'id'>>
+): Promise<Schedule> {
+  const res = await authedFetch(`/users/${userId}/checkin-schedule`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
 // --- Push tokens ---
 
 export async function registerPushToken(userId: string, token: string, platform: 'ios' | 'android') {
