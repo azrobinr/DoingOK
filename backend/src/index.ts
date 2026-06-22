@@ -6,6 +6,7 @@ import { registerAuthRoutes } from './modules/auth.js';
 import { registerUserRoutes } from './modules/users.js';
 import { registerContactRoutes } from './modules/contacts.js';
 import { registerCheckinsRoutes } from './modules/checkins.js';
+import { startJobSystem } from './jobs/index.js';
 
 dotenv.config();
 
@@ -43,6 +44,13 @@ const registerRoutes = async () => {
 const start = async () => {
   try {
     await registerRoutes();
+
+    // Background jobs run in-process only when explicitly enabled, so tests,
+    // CI, and the test sandbox don't start a scheduler.
+    if (process.env.ENABLE_JOBS === 'true') {
+      await startJobSystem(prisma);
+    }
+
     await fastify.listen({ port: PORT, host: HOST });
     console.log(`Server listening on http://${HOST}:${PORT}`);
   } catch (err) {

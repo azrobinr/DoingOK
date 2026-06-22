@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import { createGoAlertClient } from '../services/goalert.js';
+import { closeMissedCheckin } from '../services/late-checkin.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 
@@ -200,11 +202,18 @@ export async function registerCheckinsRoutes(fastify: FastifyInstance, prisma: P
       return reply.status(404).send({ error: 'Event not found' });
     }
 
-    if (event.status !== 'pending') {
-      return reply.status(400).send({ error: 'Only pending check-ins can be completed' });
+    const { notes } = request.body;
+
+    // A late response to a missed check-in resolves the alert and tells
+    // GoAlert to stop escalating.
+    if (event.status === 'missed') {
+      const updated = await closeMissedCheckin(prisma, createGoAlertClient(), eventId, notes);
+      return reply.send(updated);
     }
 
-    const { notes } = request.body;
+    if (event.status !== 'pending') {
+      return reply.status(400).send({ error: 'Only pending or missed check-ins can be completed' });
+    }
 
     const updated = await prisma.checkinEvent.update({
       where: { id: eventId },
