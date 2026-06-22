@@ -65,11 +65,13 @@ export const testSchedules = {
     frequency: 'daily',
     scheduledHour: 9,
     windowMinutes: 120,
+    escalationDelayMinutes: 15,
   },
   weeklyFriday: {
     frequency: 'weekly',
     scheduledHour: 14,
     windowMinutes: 180,
+    escalationDelayMinutes: 15,
   },
 };
 

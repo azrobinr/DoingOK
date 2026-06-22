@@ -9,20 +9,23 @@
 //   schedule-checkin-prompts  hourly   create today's check-in events (per
 //                                       user TZ, idempotent) + enqueue pushes
 //   send-checkin-push         on demand deliver a prompt for one event
-//   detect-missed-checkins    every 5m  trigger GoAlert for elapsed windows
+//   detect-missed-checkins    every 5m  record alert_events for elapsed windows
+//   escalate-alerts           every 5m  walk contacts and send SMS for open alerts
 //   expire-refresh-tokens     daily     prune expired refresh tokens
 
 import PgBoss from 'pg-boss';
 import { PrismaClient } from '@prisma/client';
 import { generateCheckinEventsForToday } from '../services/checkin-scheduler.js';
 import { detectMissedCheckins } from '../services/missed-checkin.js';
+import { escalateAlerts } from '../services/escalation-loop.js';
 import { sendCheckinPush, ConsoleNotifier, Notifier } from '../services/notifications.js';
-import { createGoAlertClient, GoAlertClient } from '../services/goalert.js';
+import { SmsClient, createSmsClient } from '../services/twilio.js';
 
 export const JOBS = {
   schedulePrompts: 'schedule-checkin-prompts',
   sendPush: 'send-checkin-push',
   detectMissed: 'detect-missed-checkins',
+  escalateAlerts: 'escalate-alerts',
   expireTokens: 'expire-refresh-tokens',
 } as const;
 
@@ -32,7 +35,7 @@ interface SendPushData {
 
 export interface JobSystemOptions {
   notifier?: Notifier;
-  goalert?: GoAlertClient;
+  smsClient?: SmsClient;
 }
 
 export interface JobSystem {
@@ -50,7 +53,7 @@ export async function startJobSystem(
   }
 
   const notifier = options.notifier ?? new ConsoleNotifier();
-  const goalert = options.goalert ?? createGoAlertClient();
+  const smsClient = options.smsClient ?? createSmsClient();
 
   const boss = new PgBoss({ connectionString });
   boss.on('error', (err) => console.error('[pg-boss] error:', err));
@@ -76,9 +79,16 @@ export async function startJobSystem(
   });
 
   await boss.work(JOBS.detectMissed, async () => {
-    const triggered = await detectMissedCheckins(prisma, goalert);
+    const triggered = await detectMissedCheckins(prisma);
     if (triggered.length > 0) {
       console.log(`[jobs] detect-missed-checkins triggered ${triggered.length} alert(s)`);
+    }
+  });
+
+  await boss.work(JOBS.escalateAlerts, async () => {
+    const notified = await escalateAlerts(prisma, smsClient);
+    if (notified.length > 0) {
+      console.log(`[jobs] escalate-alerts sent ${notified.length} notification(s)`);
     }
   });
 
@@ -91,9 +101,10 @@ export async function startJobSystem(
 
   // --- schedules (UTC) ------------------------------------------------------
 
-  await boss.schedule(JOBS.schedulePrompts, '0 * * * *'); // hourly, TZ-correct via idempotency
-  await boss.schedule(JOBS.detectMissed, '*/5 * * * *'); // every 5 minutes
-  await boss.schedule(JOBS.expireTokens, '0 3 * * *'); // daily 03:00 UTC
+  await boss.schedule(JOBS.schedulePrompts, '0 * * * *');   // hourly, TZ-correct via idempotency
+  await boss.schedule(JOBS.detectMissed, '*/5 * * * *');   // every 5 minutes
+  await boss.schedule(JOBS.escalateAlerts, '*/5 * * * *'); // every 5 minutes
+  await boss.schedule(JOBS.expireTokens, '0 3 * * *');     // daily 03:00 UTC
 
   console.log('[jobs] background job system started');
 

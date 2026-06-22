@@ -83,7 +83,8 @@ model TrustedContact {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  escalationContacts  EscalationContact[]
 
   @@unique([userId, priorityOrder])
   @@index([userId])
@@ -91,16 +92,17 @@ model TrustedContact {
 }
 
 model CheckinSchedule {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId         String   @unique @map("user_id") @db.Uuid
-  frequency      String   @default("daily")
-  scheduledHour  Int      @default(9) @map("scheduled_hour")
-  windowMinutes  Int      @default(120) @map("window_minutes")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String   @unique @map("user_id") @db.Uuid
+  frequency              String   @default("daily")
+  scheduledHour          Int      @default(9) @map("scheduled_hour")
+  windowMinutes          Int      @default(120) @map("window_minutes")
+  escalationDelayMinutes Int      @default(15) @map("escalation_delay_minutes")
+  isActive               Boolean  @default(true) @map("is_active")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("checkin_schedules")
 }
@@ -148,7 +150,7 @@ model AlertEvent {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId           String   @map("user_id") @db.Uuid
   checkinEventId   String?  @unique @map("checkin_event_id") @db.Uuid
-  goalertDedupKey  String   @unique @map("goalert_dedup_key")
+  goalertDedupKey  String?  @unique @map("goalert_dedup_key")
   status           AlertStatus @default(triggered)
   escalationStep   Int?     @map("escalation_step")
   triggeredAt      DateTime @default(now()) @map("triggered_at") @db.Timestamptz
@@ -159,12 +161,49 @@ model AlertEvent {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  checkinEvent     CheckinEvent? @relation(fields: [checkinEventId], references: [id], onDelete: SetNull)
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkinEvent        CheckinEvent? @relation(fields: [checkinEventId], references: [id], onDelete: SetNull)
+  escalationContacts  EscalationContact[]
 
   @@index([userId])
   @@index([status])
   @@map("alert_events")
+}
+
+enum EscalationMethod {
+  sms
+  call
+  email
+
+  @@map("escalation_method")
+}
+
+enum EscalationContactStatus {
+  sent
+  delivered
+  failed
+
+  @@map("escalation_contact_status")
+}
+
+model EscalationContact {
+  id               String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertEventId     String                  @map("alert_event_id") @db.Uuid
+  // Nullable: preserved as a historical record if the contact is later deleted.
+  trustedContactId String?                 @map("trusted_contact_id") @db.Uuid
+  priorityOrder    Int                     @map("priority_order")
+  method           EscalationMethod
+  status           EscalationContactStatus @default(sent)
+  notifiedAt       DateTime                @default(now()) @map("notified_at") @db.Timestamptz
+  errorMessage     String?                 @map("error_message")
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz
+
+  alertEvent       AlertEvent     @relation(fields: [alertEventId], references: [id], onDelete: Cascade)
+  trustedContact   TrustedContact? @relation(fields: [trustedContactId], references: [id], onDelete: SetNull)
+
+  @@index([alertEventId])
+  @@index([trustedContactId])
+  @@map("escalation_contacts")
 }
 
 model PushToken {

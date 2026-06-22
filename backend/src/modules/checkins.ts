@@ -1,7 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
-import { createGoAlertClient } from '../services/goalert.js';
 import { closeMissedCheckin } from '../services/late-checkin.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
@@ -204,10 +203,8 @@ export async function registerCheckinsRoutes(fastify: FastifyInstance, prisma: P
 
     const { notes } = request.body;
 
-    // A late response to a missed check-in resolves the alert and tells
-    // GoAlert to stop escalating.
     if (event.status === 'missed') {
-      const updated = await closeMissedCheckin(prisma, createGoAlertClient(), eventId, notes);
+      const updated = await closeMissedCheckin(prisma, eventId, notes);
       return reply.send(updated);
     }
 
