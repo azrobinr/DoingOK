@@ -33,6 +33,12 @@
           "sounds": []
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6bd38434-9b58-476a-aefc-3790d5697447"
+      }
+    },
+    "owner": "azrobinr"
   }
 }
