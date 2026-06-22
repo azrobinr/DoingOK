@@ -1,10 +1,16 @@
 // Push notification delivery.
 //
-// The Notifier interface abstracts the actual transport (APNs for iOS, FCM
-// for Android). A real implementation is a follow-up; ConsoleNotifier logs so
-// the check-in prompt path is exercised end-to-end in dev/test.
+// ExpoPushNotifier sends to Expo's push gateway (https://exp.host/--/api/v2/push/send),
+// which forwards to APNs (iOS) and FCM (Android). Expo push tokens are registered
+// by the mobile app via POST /users/:id/push-tokens. No separate API key is required
+// for the Expo push service — the ExponentPushToken itself is the credential.
+//
+// ConsoleNotifier is the no-op fallback used in tests and local dev when
+// EXPO_PUSH_URL is not set.
 
 import { PrismaClient } from '@prisma/client';
+
+const EXPO_PUSH_URL = process.env.EXPO_PUSH_URL ?? 'https://exp.host/--/api/v2/push/send';
 
 export interface PushMessage {
   platform: string;
@@ -17,10 +23,43 @@ export interface Notifier {
   send(message: PushMessage): Promise<void>;
 }
 
+export class ExpoPushNotifier implements Notifier {
+  async send({ token, title, body }: PushMessage): Promise<void> {
+    const res = await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
+      },
+      body: JSON.stringify([{ to: token, title, body, sound: 'default' }]),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Expo push HTTP ${res.status}: ${await res.text()}`);
+    }
+
+    const { data } = await res.json() as { data: Array<{ status: string; message?: string }> };
+    const ticket = data[0];
+    if (ticket?.status === 'error') {
+      // Log but don't throw — a bad token shouldn't crash the whole job run.
+      console.error(`[push] Expo ticket error for token ${token.slice(0, 20)}…: ${ticket.message}`);
+    }
+  }
+}
+
 export class ConsoleNotifier implements Notifier {
   async send({ platform, token, title, body }: PushMessage): Promise<void> {
     console.log(`[push:${platform}] -> ${token.slice(0, 12)}… "${title}": ${body}`);
   }
+}
+
+export function createNotifier(): Notifier {
+  // ConsoleNotifier in test/sandbox; ExpoPushNotifier when the job system runs.
+  if (process.env.ENABLE_JOBS === 'true') {
+    return new ExpoPushNotifier();
+  }
+  return new ConsoleNotifier();
 }
 
 export interface SendCheckinPushResult {

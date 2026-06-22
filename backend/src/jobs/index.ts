@@ -18,7 +18,7 @@ import { PrismaClient } from '@prisma/client';
 import { generateCheckinEventsForToday } from '../services/checkin-scheduler.js';
 import { detectMissedCheckins } from '../services/missed-checkin.js';
 import { escalateAlerts } from '../services/escalation-loop.js';
-import { sendCheckinPush, ConsoleNotifier, Notifier } from '../services/notifications.js';
+import { sendCheckinPush, createNotifier, Notifier } from '../services/notifications.js';
 import { SmsClient, createSmsClient } from '../services/twilio.js';
 
 export const JOBS = {
@@ -52,7 +52,7 @@ export async function startJobSystem(
     throw new Error('DATABASE_URL is required to start the job system');
   }
 
-  const notifier = options.notifier ?? new ConsoleNotifier();
+  const notifier = options.notifier ?? createNotifier();
   const smsClient = options.smsClient ?? createSmsClient();
 
   const boss = new PgBoss({ connectionString });
