@@ -17,10 +17,10 @@ services:
     volumes:
       - postgres_test_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U doingok"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U doingok -d doingok_test"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   api-test:
     build:
@@ -39,7 +39,7 @@ services:
       - ./src:/app/src
       - ./vitest.config.ts:/app/vitest.config.ts
       - ./prisma:/app/prisma
-    command: npm test
+    command: sh -c "npx prisma migrate deploy && npx vitest run"
 
 volumes:
   postgres_test_data:

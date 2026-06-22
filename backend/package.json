@@ -16,7 +16,7 @@
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --ui",
-    "sandbox:test": "docker-compose -f docker-compose.yml -f docker-compose.test.yml up",
+    "sandbox:test": "docker-compose -f docker-compose.yml -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from api-test",
     "sandbox:down": "docker-compose -f docker-compose.yml -f docker-compose.test.yml down",
     "sandbox:handler": "node --loader ts-node/esm infra/slack-sandbox-handler.ts",
     "sandbox:logs": "docker-compose logs -f",

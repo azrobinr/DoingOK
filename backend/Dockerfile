@@ -3,6 +3,11 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
+# Install OpenSSL + CA certs so Prisma detects OpenSSL 3.0 (Debian Bookworm
+# ships libssl3 but not the openssl package, which Prisma needs to pick the
+# correct query/schema engine binary)
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+
 # Copy package files
 COPY package*.json ./
 COPY tsconfig.json ./
@@ -22,6 +27,9 @@ RUN npm run prisma:generate
 FROM node:20-slim
 
 WORKDIR /app
+
+# Install OpenSSL + CA certs so Prisma detects OpenSSL 3.0 at runtime
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
 COPY package*.json ./
