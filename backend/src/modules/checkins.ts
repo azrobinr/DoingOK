@@ -9,12 +9,14 @@ interface CreateScheduleRequest {
   frequency: string;
   scheduledHour: number;
   windowMinutes: number;
+  escalationDelayMinutes?: number;
 }
 
 interface UpdateScheduleRequest {
   frequency?: string;
   scheduledHour?: number;
   windowMinutes?: number;
+  escalationDelayMinutes?: number;
   isActive?: boolean;
 }
 
@@ -51,7 +53,7 @@ export async function registerCheckinsRoutes(fastify: FastifyInstance, prisma: P
       return reply.status(403).send({ error: 'Cannot create schedule for another user' });
     }
 
-    const { frequency, scheduledHour, windowMinutes } = request.body;
+    const { frequency, scheduledHour, windowMinutes, escalationDelayMinutes } = request.body;
 
     // Validate hour
     if (scheduledHour < 0 || scheduledHour > 23) {
@@ -63,6 +65,11 @@ export async function registerCheckinsRoutes(fastify: FastifyInstance, prisma: P
       return reply.status(400).send({ error: 'Window must be between 30 and 480 minutes' });
     }
 
+    // Validate escalation delay
+    if (escalationDelayMinutes !== undefined && (escalationDelayMinutes < 5 || escalationDelayMinutes > 120)) {
+      return reply.status(400).send({ error: 'Escalation delay must be between 5 and 120 minutes' });
+    }
+
     try {
       const schedule = await prisma.checkinSchedule.create({
         data: {
@@ -70,6 +77,7 @@ export async function registerCheckinsRoutes(fastify: FastifyInstance, prisma: P
           frequency,
           scheduledHour,
           windowMinutes,
+          ...(escalationDelayMinutes !== undefined && { escalationDelayMinutes }),
         },
       });
 
@@ -115,6 +123,18 @@ export async function registerCheckinsRoutes(fastify: FastifyInstance, prisma: P
     const { userId } = request.params;
     if (auth.userId !== userId) {
       return reply.status(403).send({ error: 'Cannot update schedule for another user' });
+    }
+
+    const { scheduledHour, windowMinutes, escalationDelayMinutes } = request.body;
+
+    if (scheduledHour !== undefined && (scheduledHour < 0 || scheduledHour > 23)) {
+      return reply.status(400).send({ error: 'Hour must be between 0 and 23' });
+    }
+    if (windowMinutes !== undefined && (windowMinutes < 30 || windowMinutes > 480)) {
+      return reply.status(400).send({ error: 'Window must be between 30 and 480 minutes' });
+    }
+    if (escalationDelayMinutes !== undefined && (escalationDelayMinutes < 5 || escalationDelayMinutes > 120)) {
+      return reply.status(400).send({ error: 'Escalation delay must be between 5 and 120 minutes' });
     }
 
     const schedule = await prisma.checkinSchedule.findUnique({

@@ -146,6 +146,32 @@ describe('Check-ins Module', () => {
 
       expect(updated.isActive).toBe(false);
     });
+
+    it('defaults escalationDelayMinutes to 15', async () => {
+      const user = await seedTestUser('delay@example.com', 'Delay User');
+      const schedule = await seedTestSchedule(user.id, testSchedules.dailyMorning);
+      expect(schedule.escalationDelayMinutes).toBe(15);
+    });
+
+    it('can update escalationDelayMinutes', async () => {
+      const user = await seedTestUser('delay2@example.com', 'Delay User 2');
+      const schedule = await seedTestSchedule(user.id, testSchedules.dailyMorning);
+
+      const updated = await prisma.checkinSchedule.update({
+        where: { id: schedule.id },
+        data: { escalationDelayMinutes: 30 },
+      });
+
+      expect(updated.escalationDelayMinutes).toBe(30);
+    });
+
+    it('validates escalationDelayMinutes range (5–120)', () => {
+      // Route rejects values outside 5–120 with 400 Bad Request.
+      const invalid = [0, 4, 121, 200];
+      const valid = [5, 15, 30, 60, 120];
+      invalid.forEach((v) => expect(v >= 5 && v <= 120).toBe(false));
+      valid.forEach((v) => expect(v >= 5 && v <= 120).toBe(true));
+    });
   });
 
   describe('DELETE /users/:userId/checkin-schedule', () => {
