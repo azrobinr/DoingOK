@@ -81,6 +81,110 @@ export class NoopGoAlertClient implements GoAlertClient {
   }
 }
 
-export function createGoAlertClient(baseUrl = process.env.GOALERT_BASE_URL): GoAlertClient {
+export function createGoAlertClient(baseUrl = process.env.GOALERT_URL): GoAlertClient {
   return baseUrl ? new HttpGoAlertClient(baseUrl) : new NoopGoAlertClient();
+}
+
+// --- provisioning (GoAlert GraphQL admin API) -------------------------------
+//
+// At registration each user gets a dedicated GoAlert Service with a generic
+// Integration Key (its id is the token used by the Generic API / this app's
+// trigger client). The escalation policy is created empty; its steps are
+// synced from the user's trusted contacts separately.
+
+export interface ProvisionUserParams {
+  userId: string;
+  displayName: string;
+}
+
+export interface ProvisionResult {
+  serviceId: string;
+  integrationKey: string;
+}
+
+export interface GoAlertProvisioner {
+  // Returns the new generic integration key, or null when GoAlert is not
+  // configured (dev/test) so registration can proceed without a key.
+  provisionUserService(params: ProvisionUserParams): Promise<ProvisionResult | null>;
+}
+
+const CREATE_ESCALATION_POLICY = `
+  mutation CreateEP($input: CreateEscalationPolicyInput!) {
+    createEscalationPolicy(input: $input) { id }
+  }`;
+
+const CREATE_SERVICE = `
+  mutation CreateService($input: CreateServiceInput!) {
+    createService(input: $input) {
+      id
+      integrationKeys { id type name }
+    }
+  }`;
+
+export class HttpGoAlertProvisioner implements GoAlertProvisioner {
+  constructor(private readonly baseUrl: string, private readonly apiKey: string) {}
+
+  private async gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/graphql`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`GoAlert GraphQL HTTP ${response.status}: ${text}`);
+    }
+    const payload = (await response.json()) as { data?: T; errors?: { message: string }[] };
+    if (payload.errors?.length) {
+      throw new Error(`GoAlert GraphQL error: ${payload.errors.map((e) => e.message).join('; ')}`);
+    }
+    if (!payload.data) throw new Error('GoAlert GraphQL returned no data');
+    return payload.data;
+  }
+
+  async provisionUserService({ userId, displayName }: ProvisionUserParams): Promise<ProvisionResult> {
+    const label = `DoingOK ${displayName} (${userId})`;
+
+    const ep = await this.gql<{ createEscalationPolicy: { id: string } }>(CREATE_ESCALATION_POLICY, {
+      input: {
+        name: label,
+        description: 'DoingOK wellness escalation policy',
+        repeat: 1,
+      },
+    });
+
+    const svc = await this.gql<{
+      createService: { id: string; integrationKeys: { id: string; type: string; name: string }[] };
+    }>(CREATE_SERVICE, {
+      input: {
+        name: label,
+        description: 'DoingOK wellness monitoring service',
+        escalationPolicyID: ep.createEscalationPolicy.id,
+        newIntegrationKeys: [{ type: 'generic', name: 'DoingOK Wellness' }],
+      },
+    });
+
+    const keys = svc.createService.integrationKeys;
+    const generic = keys.find((k) => k.type === 'generic') ?? keys[0];
+    if (!generic) throw new Error('GoAlert created a service without an integration key');
+
+    return { serviceId: svc.createService.id, integrationKey: generic.id };
+  }
+}
+
+export class NoopGoAlertProvisioner implements GoAlertProvisioner {
+  async provisionUserService({ userId }: ProvisionUserParams): Promise<ProvisionResult | null> {
+    console.log(`[goalert:noop] would provision service for user ${userId}`);
+    return null;
+  }
+}
+
+export function createGoAlertProvisioner(
+  baseUrl = process.env.GOALERT_URL,
+  apiKey = process.env.GOALERT_API_KEY
+): GoAlertProvisioner {
+  return baseUrl && apiKey ? new HttpGoAlertProvisioner(baseUrl, apiKey) : new NoopGoAlertProvisioner();
 }
