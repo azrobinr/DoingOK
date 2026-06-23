@@ -22,6 +22,10 @@ Thumbs.db
 screenshots/
 *.png
 
+# Allow app icon assets needed for EAS builds
+!apps/mobile/assets/*.png
+!web/src/assets/*.png
+
 # Logs
 *.log
 npm-debug.log*
