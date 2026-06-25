@@ -10,10 +10,12 @@ import HomeScreen from '../screens/HomeScreen';
 import ContactsScreen from '../screens/ContactsScreen';
 import ContactDetailScreen from '../screens/ContactDetailScreen';
 import ScheduleScreen from '../screens/ScheduleScreen';
-import { AuthStackParamList, ContactsStackParamList, AppTabParamList } from './types';
+import SettingsScreen from '../screens/SettingsScreen';
+import { AuthStackParamList, ContactsStackParamList, AppTabParamList, SettingsStackParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const ContactsStack = createNativeStackNavigator<ContactsStackParamList>();
+const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 const Tab = createBottomTabNavigator<AppTabParamList>();
 
 function ContactsNavigator() {
@@ -32,6 +34,23 @@ function ContactsNavigator() {
         }
       />
     </ContactsStack.Navigator>
+  );
+}
+
+function SettingsNavigator() {
+  return (
+    <SettingsStack.Navigator>
+      <SettingsStack.Screen
+        name="SettingsRoot"
+        component={SettingsScreen}
+        options={{ title: 'Settings' }}
+      />
+      <SettingsStack.Screen
+        name="Schedule"
+        component={ScheduleScreen}
+        options={{ title: 'Check-in Schedule' }}
+      />
+    </SettingsStack.Navigator>
   );
 }
 
@@ -55,8 +74,8 @@ function AppNavigator() {
       />
       <Tab.Screen
         name="Settings"
-        component={ScheduleScreen}
-        options={{ title: 'Schedule', tabBarLabel: 'Settings', tabBarIcon: () => <Text>⚙️</Text> }}
+        component={SettingsNavigator}
+        options={{ headerShown: false, tabBarLabel: 'Settings', tabBarIcon: () => <Text>⚙️</Text> }}
       />
     </Tab.Navigator>
   );

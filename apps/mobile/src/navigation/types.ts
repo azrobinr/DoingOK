@@ -13,3 +13,8 @@ export type AppTabParamList = {
   Contacts: undefined;
   Settings: undefined;
 };
+
+export type SettingsStackParamList = {
+  SettingsRoot: undefined;
+  Schedule: undefined;
+};

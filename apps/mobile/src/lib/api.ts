@@ -199,6 +199,47 @@ export async function updateSchedule(
   return res.json();
 }
 
+// --- User profile ---
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  fullName: string;
+  displayName: string | null;
+  phone: string | null;
+  timezone: string;
+}
+
+export async function getUser(userId: string): Promise<UserProfile> {
+  const res = await authedFetch(`/users/${userId}`);
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+export async function updateProfile(
+  userId: string,
+  data: { displayName?: string; phone?: string; timezone?: string }
+): Promise<UserProfile> {
+  const res = await authedFetch(`/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  const res = await authedFetch(`/users/${userId}/password`, {
+    method: 'PATCH',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  if (!res.ok) throw await res.json();
+}
+
 // --- Push tokens ---
 
 export async function registerPushToken(userId: string, token: string, platform: 'ios' | 'android') {
