@@ -3,7 +3,7 @@
 **Organization:** DoingOK (Nonprofit)
 **Mission:** Protect the well-being of vulnerable individuals — seniors, disabled individuals, and people with mental health concerns — through proactive daily wellness monitoring and automated alert escalation.
 **Document Status:** Living document — updated as architecture decisions are made.
-**Last Updated:** May 30, 2026
+**Last Updated:** June 26, 2026
 
 ---
 
@@ -14,7 +14,7 @@
 3. [Technology Stack](#3-technology-stack)
 4. [Database Schema](#4-database-schema)
 5. [API Design](#5-api-design)
-6. [Alert Escalation — GoAlert Integration](#6-alert-escalation--goalert-integration)
+6. [Alert Escalation](#6-alert-escalation)
 7. [Background Job System](#7-background-job-system)
 8. [Mobile App](#8-mobile-app)
 9. [Open Questions & Decisions](#9-open-questions--decisions)
@@ -30,9 +30,9 @@ DoingOK is a mobile app that prompts registered users for daily wellness check-i
 
 1. **User registers** → sets up profile, accepts terms, configures check-in schedule, adds trusted contacts
 2. **Daily check-in prompt** → user taps to confirm they are OK
-3. **Missed check-in** → backend detects no response within window → triggers GoAlert escalation
-4. **Late check-in** → user responds after window → system auto-resolves open alert in GoAlert
-5. **Contact acknowledges** → alert is closed manually or via GoAlert acknowledgment
+3. **Missed check-in** → backend detects no response within window → creates alert, begins notifying trusted contacts via SMS in priority order
+4. **Late check-in** → user responds after window → alert resolved, escalation stops
+5. **Contact acknowledges** → alert can be manually resolved via API
 
 ---
 
@@ -49,8 +49,8 @@ DoingOK is a mobile app that prompts registered users for daily wellness check-i
                           ┌─────────────────┼─────────────────┐
                           │                 │                 │
                    ┌──────▼──────┐  ┌───────▼──────┐  ┌──────▼──────┐
-                   │ PostgreSQL  │  │  pg-boss      │  │  GoAlert    │
-                   │  Database   │  │  Job Queue    │  │  (Self-host)│
+                   │ PostgreSQL  │  │  pg-boss      │  │  Twilio     │
+                   │  Database   │  │  Job Queue    │  │  SMS API    │
                    └─────────────┘  └──────────────┘  └─────────────┘
 ```
 
@@ -66,7 +66,7 @@ The system is implemented as a single deployable Node.js application with clearl
 | `users` | Profile management, TOS acceptance |
 | `contacts` | Trusted contact management per user |
 | `checkins` | Schedule configuration, check-in event recording |
-| `alerts` | GoAlert API integration, alert state tracking |
+| `alerts` | Alert state tracking, own escalation loop |
 | `notifications` | Push notifications to mobile (APNs / FCM) |
 | `metrics` | Aggregated reporting, health dashboards |
 
@@ -82,8 +82,8 @@ The system is implemented as a single deployable Node.js application with clearl
 | Auth | JWT + refresh tokens | Stateless, mobile-friendly |
 | Password Hashing | bcrypt | Industry standard |
 | Job Scheduling | pg-boss | Runs entirely in Postgres — no extra infrastructure |
-| Alert Escalation | GoAlert (self-hosted) | Open-source, on-call scheduling, SMS/voice/email |
-| Push Notifications | FCM (Android) + APNs (iOS) | Native mobile push |
+| Alert Escalation | Own escalation loop + Twilio SMS | Full control over escalation logic; no external on-call platform dependency |
+| Push Notifications | FCM (Android) + APNs (iOS) via Expo | Native mobile push |
 | Hosting | Fly.io or Render | Nonprofit-friendly pricing, simple deploys |
 | CI/CD | GitHub Actions | Free for open-source/nonprofits |
 
@@ -97,7 +97,7 @@ The system is implemented as a single deployable Node.js application with clearl
 - `created_at` and `updated_at` on every table
 - Soft deletes (`deleted_at`) on sensitive tables rather than hard deletes
 - TOS acceptance stored immutably with IP and version for legal compliance
-- Alert events preserved even after resolution for audit and metrics
+- Alert events and escalation contact records preserved after resolution for audit and metrics
 
 ---
 
@@ -116,7 +116,6 @@ CREATE TABLE users (
   timezone          TEXT NOT NULL DEFAULT 'UTC',
   is_active         BOOLEAN NOT NULL DEFAULT TRUE,
   is_verified       BOOLEAN NOT NULL DEFAULT FALSE,
-  goalert_service_key TEXT,                        -- Integration key from GoAlert service
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at        TIMESTAMPTZ                    -- Soft delete
@@ -126,8 +125,7 @@ CREATE INDEX idx_users_email ON users(email);
 ```
 
 **Notes:**
-- `goalert_service_key` is created programmatically in GoAlert when a user registers and stores the integration key for that user's personal GoAlert service.
-- `phone` stored in E.164 format for GoAlert SMS compatibility.
+- `phone` stored in E.164 format for SMS compatibility.
 
 ---
 
@@ -202,30 +200,33 @@ CREATE INDEX idx_contacts_user_id ON trusted_contacts(user_id);
 ```
 
 **Notes:**
-- GoAlert escalation policy steps map to `priority_order`. Step 1 = priority 1, etc.
+- `priority_order` determines escalation sequence: step 1 is notified first, then step 2 after the configured delay, etc.
 - At least one of `phone` or `email` must be present (enforced at application layer).
+- SMS is the currently active notification channel; `notify_via_email` and `notify_via_call` are schema-ready but not yet wired to providers.
 
 ---
 
 ### 4.5 `checkin_schedules`
 
-Defines how frequently a user expects to check in and the response window.
+Defines how frequently a user expects to check in, the response window, and the delay between escalation steps.
 
 ```sql
 CREATE TABLE checkin_schedules (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id         UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-  frequency       TEXT NOT NULL DEFAULT 'daily',    -- 'daily', 'twice_daily', 'weekly'
-  scheduled_hour  INTEGER NOT NULL DEFAULT 9,        -- Hour of day (0-23) in user's timezone
-  window_minutes  INTEGER NOT NULL DEFAULT 120,      -- Minutes after prompt before alert fires
-  is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                   UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  frequency                 TEXT NOT NULL DEFAULT 'daily',   -- 'daily', 'twice_daily', 'weekly'
+  scheduled_hour            INTEGER NOT NULL DEFAULT 9,       -- Hour of day (0-23) in user's timezone
+  window_minutes            INTEGER NOT NULL DEFAULT 120,     -- Grace period before alert fires
+  escalation_delay_minutes  INTEGER NOT NULL DEFAULT 15,      -- Wait time between contacting each step
+  is_active                 BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
 **Notes:**
-- `window_minutes` is the grace period: if set to 120, GoAlert is triggered 2 hours after the scheduled check-in if no response is received.
+- `window_minutes`: if set to 120, an alert is triggered 2 hours after the scheduled check-in with no response.
+- `escalation_delay_minutes`: how long to wait before moving to the next trusted contact if the current one does not respond. Default 15 minutes.
 - `scheduled_hour` is interpreted in the user's `timezone` from the `users` table.
 
 ---
@@ -239,7 +240,7 @@ CREATE TYPE checkin_status AS ENUM (
   'pending',     -- Prompt sent, awaiting response
   'completed',   -- User responded within window
   'missed',      -- No response within window — alert triggered
-  'late',        -- User responded after window (alert was already triggered)
+  'late',        -- User responded after window (alert already triggered and now resolved)
   'skipped'      -- User proactively marked as unavailable (planned absence)
 );
 
@@ -268,19 +269,18 @@ Tracks every wellness alert triggered, its escalation state, and resolution.
 
 ```sql
 CREATE TYPE alert_status AS ENUM (
-  'triggered',    -- Alert sent to GoAlert, awaiting acknowledgment
-  'acknowledged', -- A contact acknowledged via GoAlert
-  'resolved',     -- Alert closed (user checked in late, or contact confirmed safe)
-  'expired'       -- No one acknowledged before repeat limit reached
+  'triggered',    -- Alert created, escalation loop is active
+  'acknowledged', -- A contact acknowledged (reserved for future use)
+  'resolved',     -- Alert closed — user checked in late, or contact confirmed safe
+  'expired'       -- All contacts exhausted with no acknowledgment
 );
 
 CREATE TABLE alert_events (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id               UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  checkin_event_id      UUID REFERENCES checkin_events(id),
-  goalert_dedup_key     TEXT NOT NULL UNIQUE,   -- Dedup key sent to GoAlert API
+  checkin_event_id      UUID UNIQUE REFERENCES checkin_events(id) ON DELETE SET NULL,
   status                alert_status NOT NULL DEFAULT 'triggered',
-  escalation_step       INTEGER,                -- Which step was active when resolved
+  escalation_step       INTEGER,                -- Tracks which contact step was last attempted
   triggered_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   acknowledged_at       TIMESTAMPTZ,
   resolved_at           TIMESTAMPTZ,
@@ -295,12 +295,44 @@ CREATE INDEX idx_alert_events_status ON alert_events(status);
 ```
 
 **Notes:**
-- `goalert_dedup_key` prevents duplicate alerts for the same missed check-in event. Format: `user-{user_id}-checkin-{checkin_event_id}`.
-- When a user checks in late, the backend calls GoAlert's close action and sets `status = 'resolved'` here.
+- The `UNIQUE` constraint on `checkin_event_id` prevents duplicate alerts for the same missed check-in.
+- Setting `status = 'resolved'` stops the escalation loop from sending further notifications.
+- When a user checks in late, the backend sets `status = 'resolved'` and `resolution_notes = 'Late check-in'` atomically.
 
 ---
 
-### 4.8 `push_tokens`
+### 4.8 `escalation_contacts`
+
+An append-only log of every contact notification attempt for a given alert. Used by the escalation loop to determine which contacts have already been reached and when.
+
+```sql
+CREATE TYPE escalation_method AS ENUM ('sms', 'call', 'email');
+CREATE TYPE escalation_contact_status AS ENUM ('sent', 'delivered', 'failed');
+
+CREATE TABLE escalation_contacts (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  alert_event_id    UUID NOT NULL REFERENCES alert_events(id) ON DELETE CASCADE,
+  trusted_contact_id UUID REFERENCES trusted_contacts(id) ON DELETE SET NULL,
+                                                -- Nullable: preserved if contact is later deleted
+  priority_order    INTEGER NOT NULL,
+  method            escalation_method NOT NULL,
+  status            escalation_contact_status NOT NULL DEFAULT 'sent',
+  notified_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  error_message     TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_escalation_contacts_alert_event_id ON escalation_contacts(alert_event_id);
+CREATE INDEX idx_escalation_contacts_trusted_contact_id ON escalation_contacts(trusted_contact_id);
+```
+
+**Notes:**
+- Records are created **before** the SMS is sent so that a crash after sending cannot cause a duplicate notification on the next job run.
+- `trusted_contact_id` uses `SET NULL` on delete so the historical record is preserved even if the contact is removed.
+
+---
+
+### 4.9 `push_tokens`
 
 Stores device push notification tokens per user.
 
@@ -320,7 +352,7 @@ CREATE INDEX idx_push_tokens_user_id ON push_tokens(user_id);
 
 ---
 
-### 4.9 `metrics` (Materialized View)
+### 4.10 `metrics` (Materialized View)
 
 Rather than a separate table, key metrics are derived from existing tables via a materialized view, refreshed periodically.
 
@@ -360,6 +392,7 @@ users
   ├── checkin_schedules      (one user → one active schedule)
   ├── checkin_events         (one user → many events over time)
   ├── alert_events           (one user → many alerts, linked to checkin_events)
+  │     └── escalation_contacts  (one alert → one record per contact attempt)
   └── push_tokens            (one user → one or more devices)
 ```
 
@@ -398,55 +431,69 @@ All protected routes require `Authorization: Bearer <access_token>` header. Acce
 
 ---
 
-## 6. Alert Escalation — GoAlert Integration
+## 6. Alert Escalation
 
 ### Overview
 
-GoAlert is a self-hosted, open-source on-call and escalation platform. DoingOK uses GoAlert's Generic API to trigger wellness alerts when users miss a check-in.
+DoingOK implements its own escalation loop rather than relying on an external on-call platform. When a check-in is missed, the system creates an `alert_event` and then progressively notifies the user's trusted contacts via SMS in priority order, waiting a configurable delay between each step. This gives the project full control over escalation logic with no external service dependency beyond Twilio for SMS delivery.
 
-### GoAlert Concepts Mapped to DoingOK
+### Escalation Flow
 
-| GoAlert Concept | DoingOK Usage |
-|---|---|
-| **Service** | One per registered user; created programmatically at registration |
-| **Integration Key** | Stored in `users.goalert_service_key`; used to send alerts |
-| **Escalation Policy** | One per user; steps = trusted contacts in `priority_order` |
-| **Step** | Each trusted contact; wait time = configurable (default 15 min) |
-| **Alert** | Created when check-in window expires; closed when user responds late |
-
-### Triggering an Alert
-
-When `pg-boss` detects a missed check-in, the `alerts` module fires:
-
-```http
-POST https://goalert.doingok.org/api/v2/generic/incoming
-Content-Type: application/x-www-form-urlencoded
-
-token=<users.goalert_service_key>
-&summary=Wellness check needed: {user.display_name} has not checked in
-&details=Last scheduled check-in: {scheduled_at}. Please contact them to confirm they are safe.
-&dedup=user-{user_id}-checkin-{checkin_event_id}
+```
+check-in window expires
+        │
+        ▼
+detect-missed-checkins job (every 5 min)
+  → creates alert_event (status = 'triggered')
+  → marks checkin_event (status = 'missed')
+        │
+        ▼
+escalate-alerts job (every 5 min)
+  → for each alert_event WHERE status = 'triggered':
+      1. Find lowest priority_order contact not yet in escalation_contacts
+      2. If first contact → notify immediately
+         If subsequent contact → check elapsed time >= escalation_delay_minutes
+      3. Insert escalation_contacts record (before sending — idempotency guard)
+      4. Send SMS via Twilio
+      5. If send fails → update escalation_contacts.status = 'failed'
+        │
+        ▼
+  (repeat every 5 min until alert resolved or all contacts exhausted)
+        │
+        ▼
+user checks in late  ──►  closeMissedCheckin()
+  → checkin_event.status = 'late'
+  → alert_event.status = 'resolved'   ← escalation loop stops
 ```
 
-### Closing an Alert (Late Check-In)
+### Idempotency
 
-```http
-POST https://goalert.doingok.org/api/v2/generic/incoming
+The `escalation_contacts` record is written to the database **before** the SMS is dispatched. If the process crashes after sending but before committing, the next job run sees the existing record and treats that contact as already attempted — preventing duplicate notifications.
 
-token=<users.goalert_service_key>
-&summary=Wellness check needed: {user.display_name} has not checked in
-&action=close
-&dedup=user-{user_id}-checkin-{checkin_event_id}
+### Notification Channels
+
+| Channel | Status | Provider |
+|---|---|---|
+| SMS | Active | Twilio |
+| Voice call | Planned | TBD |
+| Email | Planned | TBD |
+
+### Twilio SMS Message Format
+
+```
+DoingOK wellness alert: {user.displayName} has not completed their daily check-in.
+Please reach out to confirm they are safe.
 ```
 
-### GoAlert Setup Per New User (Registration Flow)
+### Late Check-In Resolution
 
-1. Create a GoAlert **Service** via GraphQL API
-2. Create an **Integration Key** on that service → store in `users.goalert_service_key`
-3. Create an **Escalation Policy** with one step per trusted contact
-4. Attach the escalation policy to the service
+When a user submits a check-in after their window has already elapsed:
 
-> **Note:** When a user updates their trusted contacts, the corresponding GoAlert escalation policy steps must be kept in sync.
+1. `checkin_event.status` → `'late'`, `responded_at` set
+2. `alert_event.status` → `'resolved'`, `resolved_at` set, `resolution_notes = 'Late check-in'`
+3. The escalation loop will not send further notifications for this alert
+
+Both updates are applied in a single database transaction to prevent inconsistent state.
 
 ---
 
@@ -460,35 +507,49 @@ pg-boss manages all time-driven background work using PostgreSQL as its queue ba
 
 | Job | Trigger | Action |
 |---|---|---|
-| `schedule-checkin-prompts` | Daily cron | Create `checkin_events` records and enqueue prompt delivery for each active user |
+| `schedule-checkin-prompts` | Hourly | Create `checkin_events` records and enqueue prompt delivery for each active user (idempotent per user per day) |
 | `send-checkin-push` | Per event | Send push notification to user's registered device(s) |
-| `detect-missed-checkins` | Every 5 min | Query `checkin_events` where `status = 'pending'` and `scheduled_at + window_minutes < NOW()` → trigger GoAlert |
-| `refresh-metrics-view` | Every hour | `REFRESH MATERIALIZED VIEW CONCURRENTLY user_metrics` |
-| `expire-refresh-tokens` | Daily | Delete or mark expired refresh tokens |
+| `detect-missed-checkins` | Every 5 min | Query `checkin_events` where `status = 'pending'` and `scheduled_at + window_minutes < NOW()` → create `alert_event`, mark check-in `missed` |
+| `escalate-alerts` | Every 5 min | Walk trusted contacts for each open alert; send SMS when delay threshold is met |
+| `expire-refresh-tokens` | Daily 03:00 UTC | Prune expired refresh tokens |
 
 ### Missed Check-In Detection Logic
 
 ```
 FOR each checkin_event WHERE status = 'pending'
   AND scheduled_at + (window_minutes * interval '1 minute') < NOW()
-  AND no open alert_event exists for this checkin_event:
+  AND no alert_event exists for this checkin_event:
 
-  1. Insert alert_event (status = 'triggered')
-  2. Update checkin_event status = 'missed'
-  3. POST to GoAlert Generic API with dedup key
+  BEGIN TRANSACTION
+    INSERT alert_event (status = 'triggered', escalation_step = 1)
+    UPDATE checkin_event SET status = 'missed'
+  COMMIT
 ```
+
+The `UNIQUE` constraint on `alert_events.checkin_event_id` makes this detection naturally idempotent — concurrent runs cannot create duplicate alerts for the same event.
 
 ---
 
 ## 8. Mobile App
 
-*To be defined. Planned sections:*
+The mobile app is built with **Expo SDK 56** (React Native 0.85 / React 19). It is structured as a native-stack navigator with the following screens:
 
-- Platform (React Native / Flutter / native iOS+Android)
-- Check-in UX flow
-- Push notification handling
-- Offline / low-connectivity behavior
-- Accessibility requirements (critical given user population)
+| Screen | Description |
+|---|---|
+| Login | Email + password authentication |
+| Register | Account creation with TOS acceptance |
+| Home | Daily check-in prompt; shows pending/completed/missed state |
+| Schedule | Configure check-in frequency, hour, window, and escalation delay |
+| Contacts | Manage trusted contacts in priority order |
+| Settings | Profile management, password change, sign out |
+
+### Push Notifications
+
+Expo Push Notifications are used to deliver daily check-in prompts. Device tokens are registered via `POST /users/:id/push-token` and stored in `push_tokens`. The `send-checkin-push` pg-boss job calls the Expo Push API to deliver notifications.
+
+### Accessibility
+
+The target user population includes seniors and people with disabilities. All screens are designed with large touch targets, high-contrast text, and semantic accessibility labels. Font size preferences are handled at the OS level via React Native's `allowFontScaling`.
 
 ---
 
@@ -496,14 +557,15 @@ FOR each checkin_event WHERE status = 'pending'
 
 | # | Question | Status |
 |---|---|---|
-| 1 | Self-host GoAlert on Fly.io alongside API, or separate VM? | Open |
-| 2 | Mobile platform: React Native vs Flutter vs native? | Open |
-| 3 | Should trusted contacts receive a DoingOK app invite, or just SMS/email? | Open |
-| 4 | What is the repeat limit on GoAlert escalation before escalating to local authorities? | Open |
-| 5 | How should "planned absence" (user traveling, medical stay) be handled to suppress alerts? | Open |
-| 6 | HIPAA considerations: does storing wellness check data require BAAs with hosting providers? | Open |
-| 7 | Should community volunteers be managed within DoingOK or within GoAlert? | Open |
-| 8 | What version of TOS should be shipped at launch, and who owns drafting it? | Open |
+| 1 | Mobile platform: React Native / Expo — confirmed. EAS build pipeline needed for TestFlight / Play Store. | Decided |
+| 2 | Should trusted contacts receive a DoingOK app invite, or just SMS/email? | Open |
+| 3 | What is the repeat limit on escalation before flagging as `expired`? Currently contacts are exhausted with no auto-escalation to authorities. | Open |
+| 4 | How should "planned absence" (user traveling, medical stay) be handled to suppress alerts? | Open |
+| 5 | HIPAA considerations: does storing wellness check data require BAAs with hosting providers? | Open |
+| 6 | Should community volunteers be a first-class concept in DoingOK, or are they just regular trusted contacts? | Open |
+| 7 | What version of TOS should be shipped at launch, and who owns drafting it? | Open |
+| 8 | Voice call and email escalation channels — which provider, and when to prioritize? | Open |
+| 9 | Should contacts be able to acknowledge an alert via a reply SMS or a web link, without needing the app? | Open |
 
 ---
 
@@ -514,12 +576,14 @@ FOR each checkin_event WHERE status = 'pending'
 | **Check-in** | A user's daily confirmation that they are OK, submitted via the mobile app |
 | **Check-in window** | The grace period after a scheduled check-in time before an alert is triggered |
 | **Trusted contact** | A person designated by the user to be notified if they miss a check-in |
-| **Alert escalation** | The process of notifying contacts in priority order until one acknowledges |
-| **GoAlert** | Open-source on-call scheduling and escalation platform used by DoingOK |
-| **Dedup key** | A unique string sent with each GoAlert API call to prevent duplicate alerts |
+| **Alert escalation** | The process of notifying contacts in priority order until the alert is resolved |
+| **Escalation delay** | The wait time between notifying one trusted contact and the next (`escalation_delay_minutes`) |
+| **Escalation contact record** | An append-only log entry in `escalation_contacts` recording each notification attempt |
+| **Twilio** | SMS delivery provider used to send wellness alert messages to trusted contacts |
 | **pg-boss** | PostgreSQL-backed job scheduling library used for background tasks |
 | **TOS** | Terms of Service — legal agreement users must accept before using the app |
 | **Soft delete** | Marking a record as deleted via a `deleted_at` timestamp rather than removing it from the database |
+| **Late check-in** | A check-in submitted after the window has elapsed; resolves the open alert |
 
 ---
 
