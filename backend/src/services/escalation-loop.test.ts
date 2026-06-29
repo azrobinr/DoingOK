@@ -179,4 +179,55 @@ describe('escalateAlerts', () => {
     expect(results).toHaveLength(0);
     expect(sms.sent).toHaveLength(1);
   });
+
+  it('updates escalation_step on the alert to match the contact just notified', async () => {
+    const user = await seedTestUser('esc8@example.com', 'Alice');
+    await seedTestContact(user.id, testContacts.aliceSon); // priority 1
+    await seedTestContact(user.id, {
+      ...testContacts.aliceDaughter,
+      notifyViaSms: true,
+      phone: '+15550303',
+    }); // priority 2
+    await seedTestSchedule(user.id, testSchedules.dailyMorning);
+    const alert = await seedTriggeredAlert(user.id);
+
+    const t0 = new Date('2026-06-22T09:00:00Z');
+    const sms = new FakeSmsClient();
+    await escalateAlerts(prisma, sms, t0);
+
+    const afterFirst = await prisma.alertEvent.findUniqueOrThrow({ where: { id: alert.id } });
+    expect(afterFirst.escalationStep).toBe(1);
+
+    const t16 = new Date('2026-06-22T09:16:00Z');
+    await escalateAlerts(prisma, sms, t16);
+
+    const afterSecond = await prisma.alertEvent.findUniqueOrThrow({ where: { id: alert.id } });
+    expect(afterSecond.escalationStep).toBe(2);
+  });
+
+  it('marks alert expired after all contacts attempted and delay elapsed', async () => {
+    const user = await seedTestUser('esc9@example.com', 'Alice');
+    await seedTestContact(user.id, testContacts.aliceSon); // only SMS contact, priority 1
+    await seedTestSchedule(user.id, testSchedules.dailyMorning);
+    const alert = await seedTriggeredAlert(user.id);
+
+    const t0 = new Date('2026-06-22T09:00:00Z');
+    const sms = new FakeSmsClient();
+    await escalateAlerts(prisma, sms, t0);
+
+    // At t+14: delay not yet elapsed — alert still triggered
+    const t14 = new Date('2026-06-22T09:14:00Z');
+    await escalateAlerts(prisma, sms, t14);
+    const midState = await prisma.alertEvent.findUniqueOrThrow({ where: { id: alert.id } });
+    expect(midState.status).toBe('triggered');
+
+    // At t+16: delay elapsed — alert should be expired
+    const t16 = new Date('2026-06-22T09:16:00Z');
+    await escalateAlerts(prisma, sms, t16);
+    const finalState = await prisma.alertEvent.findUniqueOrThrow({ where: { id: alert.id } });
+    expect(finalState.status).toBe('expired');
+
+    // No additional SMS was sent during expiry
+    expect(sms.sent).toHaveLength(1);
+  });
 });

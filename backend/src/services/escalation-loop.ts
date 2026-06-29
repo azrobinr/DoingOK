@@ -10,6 +10,9 @@
 // Idempotency: escalation_contacts records are created before sending, so a
 // crashed run that left a record behind treats that contact as already
 // attempted on the next run rather than re-sending.
+//
+// Expiry: once all SMS-capable contacts have been attempted and the delay has
+// elapsed since the last attempt, the alert is marked 'expired'.
 
 import { EscalationMethod, PrismaClient } from '@prisma/client';
 import { SmsClient } from './twilio.js';
@@ -64,11 +67,27 @@ export async function escalateAlerts(
     const next = alert.user.trustedContacts.find(
       (c) => !attemptedIds.has(c.id) && c.notifyViaSms && c.phone
     );
-    if (!next) continue;
+
+    const lastAttempt = alert.escalationContacts[0];
+
+    if (!next) {
+      // All SMS-capable contacts have been attempted. Expire the alert once
+      // the delay has elapsed after the last attempt so contacts have time
+      // to act before we give up.
+      if (lastAttempt) {
+        const elapsed = now.getTime() - lastAttempt.notifiedAt.getTime();
+        if (elapsed >= delayMs) {
+          await prisma.alertEvent.update({
+            where: { id: alert.id },
+            data: { status: 'expired' },
+          });
+        }
+      }
+      continue;
+    }
 
     // For the very first contact, notify immediately.
     // For subsequent contacts, enforce the escalation delay.
-    const lastAttempt = alert.escalationContacts[0];
     if (lastAttempt) {
       const elapsed = now.getTime() - lastAttempt.notifiedAt.getTime();
       if (elapsed < delayMs) continue;
@@ -84,6 +103,12 @@ export async function escalateAlerts(
         status: 'sent',
         notifiedAt: now,
       },
+    });
+
+    // Keep escalation_step in sync with the contact step we just reached.
+    await prisma.alertEvent.update({
+      where: { id: alert.id },
+      data: { escalationStep: next.priorityOrder },
     });
 
     const userName = alert.user.displayName || alert.user.fullName;

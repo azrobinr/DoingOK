@@ -155,10 +155,53 @@ export async function registerContactRoutes(fastify: FastifyInstance, prisma: Pr
       return reply.status(404).send({ error: 'Contact not found' });
     }
 
-    const updated = await prisma.trustedContact.update({
-      where: { id: contactId },
-      data: request.body,
-    });
+    const { priorityOrder: newPriority, ...otherFields } = request.body as UpdateContactRequest;
+
+    if (newPriority !== undefined && newPriority !== contact.priorityOrder) {
+      // Reorder atomically within a transaction. Moving the target contact to a
+      // temporary sentinel priority (-1) first clears its slot, so the range
+      // shift never produces a transient duplicate, and the final placement lands
+      // on a freshly vacated position.
+      const oldPriority = contact.priorityOrder;
+      await prisma.$transaction(async (tx) => {
+        // Park the target at -1 (never a real priority) to free its current slot.
+        await tx.trustedContact.update({
+          where: { id: contactId },
+          data: { priorityOrder: -1 },
+        });
+
+        if (newPriority < oldPriority) {
+          // Moving up: push everything in [newPriority, oldPriority-1] down one.
+          await tx.$executeRaw`
+            UPDATE trusted_contacts
+            SET priority_order = priority_order + 1
+            WHERE user_id = ${userId}::uuid
+              AND priority_order >= ${newPriority}
+              AND priority_order < ${oldPriority}
+          `;
+        } else {
+          // Moving down: pull everything in [oldPriority+1, newPriority] up one.
+          await tx.$executeRaw`
+            UPDATE trusted_contacts
+            SET priority_order = priority_order - 1
+            WHERE user_id = ${userId}::uuid
+              AND priority_order > ${oldPriority}
+              AND priority_order <= ${newPriority}
+          `;
+        }
+
+        // Place the target at the vacated slot.
+        await tx.trustedContact.update({
+          where: { id: contactId },
+          data: { priorityOrder: newPriority },
+        });
+      });
+    }
+
+    const hasOtherFields = Object.keys(otherFields).length > 0;
+    const updated = hasOtherFields
+      ? await prisma.trustedContact.update({ where: { id: contactId }, data: otherFields })
+      : await prisma.trustedContact.findUniqueOrThrow({ where: { id: contactId } });
 
     return reply.send(updated);
   });
@@ -192,9 +235,17 @@ export async function registerContactRoutes(fastify: FastifyInstance, prisma: Pr
       return reply.status(400).send({ error: 'Must have at least one trusted contact' });
     }
 
-    await prisma.trustedContact.delete({
-      where: { id: contactId },
-    });
+    await prisma.$transaction([
+      prisma.trustedContact.delete({ where: { id: contactId } }),
+    ]);
+
+    // Close the gap left by the removed contact so priorities remain contiguous.
+    await prisma.$executeRaw`
+      UPDATE trusted_contacts
+      SET priority_order = priority_order - 1
+      WHERE user_id = ${userId}::uuid
+        AND priority_order > ${contact.priorityOrder}
+    `;
 
     return reply.send({ message: 'Contact deleted' });
   });
