@@ -20,6 +20,8 @@ model User {
   timezone            String   @default("UTC")
   isActive            Boolean  @default(true) @map("is_active")
   isVerified          Boolean  @default(false) @map("is_verified")
+  isPaused            Boolean  @default(false) @map("is_paused")
+  pausedAt            DateTime? @map("paused_at") @db.Timestamptz
   goalertServiceKey   String?  @map("goalert_service_key")
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz

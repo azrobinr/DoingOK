@@ -4,7 +4,7 @@ import {
   ActivityIndicator, ScrollView, RefreshControl,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { getTodayEvent, completeCheckin, logout } from '../lib/api';
+import { getTodayEvent, completeCheckin, logout, getUser } from '../lib/api';
 
 interface CheckinEvent {
   id: string;
@@ -16,6 +16,7 @@ interface CheckinEvent {
 export default function HomeScreen() {
   const { user, signOut } = useAuth();
   const [event, setEvent] = useState<CheckinEvent | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
   const [loadingEvent, setLoadingEvent] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -24,8 +25,12 @@ export default function HomeScreen() {
   const loadEvent = useCallback(async () => {
     if (!user) return;
     try {
-      const e = await getTodayEvent(user.id);
+      const [e, profile] = await Promise.all([
+        getTodayEvent(user.id),
+        getUser(user.id),
+      ]);
       setEvent(e);
+      setIsPaused(profile.isPaused);
       setError('');
     } catch {
       setError('Could not load check-in status.');
@@ -81,6 +86,15 @@ export default function HomeScreen() {
       <Text style={styles.greeting}>Hi, {greeting}!</Text>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {isPaused ? (
+        <View style={styles.pausedBanner}>
+          <Text style={styles.pausedTitle}>Check-ins paused</Text>
+          <Text style={styles.pausedBody}>
+            Your check-in schedule is paused. Resume in Settings when you're back.
+          </Text>
+        </View>
+      ) : null}
 
       {loadingEvent ? (
         <ActivityIndicator size="large" color="#1a73e8" style={styles.spinner} />
@@ -157,4 +171,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkinButtonText: { color: '#fff', fontSize: 22, fontWeight: '700' },
+  pausedBanner: {
+    backgroundColor: '#fff3cd',
+    borderLeftWidth: 4,
+    borderLeftColor: '#f59e0b',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+  },
+  pausedTitle: { fontSize: 16, fontWeight: '600', color: '#92400e', marginBottom: 4 },
+  pausedBody: { fontSize: 14, color: '#92400e', lineHeight: 20 },
 });

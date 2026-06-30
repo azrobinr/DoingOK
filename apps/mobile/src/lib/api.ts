@@ -208,6 +208,8 @@ export interface UserProfile {
   displayName: string | null;
   phone: string | null;
   timezone: string;
+  isPaused: boolean;
+  pausedAt: string | null;
 }
 
 export async function getUser(userId: string): Promise<UserProfile> {
@@ -238,6 +240,18 @@ export async function changePassword(
     body: JSON.stringify({ currentPassword, newPassword }),
   });
   if (!res.ok) throw await res.json();
+}
+
+export async function pauseCheckins(userId: string): Promise<{ isPaused: boolean; pausedAt: string }> {
+  const res = await authedFetch(`/users/${userId}/pause`, { method: 'POST' });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+export async function resumeCheckins(userId: string): Promise<{ isPaused: boolean; pausedAt: null }> {
+  const res = await authedFetch(`/users/${userId}/resume`, { method: 'POST' });
+  if (!res.ok) throw await res.json();
+  return res.json();
 }
 
 // --- Push tokens ---

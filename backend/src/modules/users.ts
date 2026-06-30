@@ -48,6 +48,8 @@ export async function registerUserRoutes(fastify: FastifyInstance, prisma: Prism
         phone: true,
         timezone: true,
         isVerified: true,
+        isPaused: true,
+        pausedAt: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -149,6 +151,46 @@ export async function registerUserRoutes(fastify: FastifyInstance, prisma: Prism
     });
 
     return reply.send({ message: 'Password updated' });
+  });
+
+  // POST /users/:id/pause — suppress check-ins until the user resumes
+  fastify.post('/users/:id/pause', async (request: any, reply) => {
+    const token = request.headers.authorization?.split(' ')[1];
+    if (!token) return reply.status(401).send({ error: 'Not authenticated' });
+    let decoded;
+    try { decoded = jwt.verify(token, JWT_SECRET) as { userId: string }; }
+    catch { return reply.status(401).send({ error: 'Invalid token' }); }
+
+    const { id } = request.params;
+    if (decoded.userId !== id) return reply.status(403).send({ error: 'Cannot pause another user' });
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: { isPaused: true, pausedAt: new Date() },
+      select: { id: true, isPaused: true, pausedAt: true },
+    });
+
+    return reply.send(user);
+  });
+
+  // POST /users/:id/resume — lift a planned-absence pause
+  fastify.post('/users/:id/resume', async (request: any, reply) => {
+    const token = request.headers.authorization?.split(' ')[1];
+    if (!token) return reply.status(401).send({ error: 'Not authenticated' });
+    let decoded;
+    try { decoded = jwt.verify(token, JWT_SECRET) as { userId: string }; }
+    catch { return reply.status(401).send({ error: 'Invalid token' }); }
+
+    const { id } = request.params;
+    if (decoded.userId !== id) return reply.status(403).send({ error: 'Cannot resume another user' });
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: { isPaused: false, pausedAt: null },
+      select: { id: true, isPaused: true, pausedAt: true },
+    });
+
+    return reply.send(user);
   });
 
   // DELETE /users/:id

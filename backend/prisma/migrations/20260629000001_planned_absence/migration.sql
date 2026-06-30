@@ -1,0 +1,2 @@
+ALTER TABLE "users" ADD COLUMN "is_paused" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "users" ADD COLUMN "paused_at" TIMESTAMPTZ;

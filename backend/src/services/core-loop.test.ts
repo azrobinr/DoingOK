@@ -75,6 +75,15 @@ describe('Core check-in loop', () => {
       expect(all).toHaveLength(1);
     });
 
+    it('skips paused users', async () => {
+      const user = await seedTestUser('paused-sched@example.com', 'Paused User', undefined, 'UTC');
+      await seedTestSchedule(user.id, testSchedules.dailyMorning);
+      await prisma.user.update({ where: { id: user.id }, data: { isPaused: true } });
+
+      const created = await generateCheckinEventsForToday(prisma, new Date('2026-05-01T00:30:00.000Z'));
+      expect(created).toHaveLength(0);
+    });
+
     it('skips inactive schedules and non-daily frequency', async () => {
       const inactiveUser = await seedTestUser('inactive@example.com', 'Inactive', undefined, 'UTC');
       const schedule = await seedTestSchedule(inactiveUser.id, testSchedules.dailyMorning);
@@ -106,6 +115,20 @@ describe('Core check-in loop', () => {
 
       const alert = await prisma.alertEvent.findUnique({ where: { checkinEventId: event.id } });
       expect(alert?.status).toBe('triggered');
+    });
+
+    it('does not trigger for a paused user', async () => {
+      const user = await seedTestUser('paused-missed@example.com', 'Paused Missed', undefined, 'UTC');
+      await seedTestSchedule(user.id, testSchedules.dailyMorning);
+      await seedTestCheckinEvent(user.id, new Date('2026-05-01T09:00:00.000Z'), 'pending');
+      await prisma.user.update({ where: { id: user.id }, data: { isPaused: true } });
+
+      // 3 hours later: window elapsed, but user is paused — no alert should fire.
+      const triggered = await detectMissedCheckins(prisma, new Date('2026-05-01T12:00:00.000Z'));
+      expect(triggered).toHaveLength(0);
+
+      const alerts = await prisma.alertEvent.findMany({ where: { userId: user.id } });
+      expect(alerts).toHaveLength(0);
     });
 
     it('does not trigger before the window elapses', async () => {

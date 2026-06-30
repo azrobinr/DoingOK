@@ -84,7 +84,7 @@ export async function generateCheckinEventsForToday(
   const schedules = await prisma.checkinSchedule.findMany({
     where: {
       isActive: true,
-      user: { deletedAt: null, isActive: true },
+      user: { deletedAt: null, isActive: true, isPaused: false },
     },
     include: { user: true },
   });

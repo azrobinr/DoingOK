@@ -6,7 +6,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
-import { getUser, updateProfile, changePassword, UserProfile } from '../lib/api';
+import { getUser, updateProfile, changePassword, pauseCheckins, resumeCheckins, UserProfile } from '../lib/api';
 import { SettingsStackParamList } from '../navigation/types';
 
 type Nav = NativeStackNavigationProp<SettingsStackParamList, 'SettingsRoot'>;
@@ -50,6 +50,9 @@ export default function SettingsScreen() {
   const [phone, setPhone] = useState('');
   const [timezone, setTimezone] = useState('UTC');
 
+  const [isPaused, setIsPaused] = useState(false);
+  const [togglingPause, setTogglingPause] = useState(false);
+
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -65,6 +68,7 @@ export default function SettingsScreen() {
       setDisplayName(p.displayName ?? '');
       setPhone(p.phone ?? '');
       setTimezone(p.timezone ?? 'UTC');
+      setIsPaused(p.isPaused);
       setProfileError('');
     } catch {
       setProfileError('Could not load profile.');
@@ -109,6 +113,26 @@ export default function SettingsScreen() {
       setPasswordError(err?.error ?? 'Could not change password.');
     } finally {
       setChangingPassword(false);
+    }
+  }
+
+  async function handleTogglePause() {
+    if (!user) return;
+    setTogglingPause(true);
+    try {
+      if (isPaused) {
+        await resumeCheckins(user.id);
+        setIsPaused(false);
+        Alert.alert('Resumed', 'Your check-in schedule is active again.');
+      } else {
+        await pauseCheckins(user.id);
+        setIsPaused(true);
+        Alert.alert('Paused', 'Check-ins are paused. Resume here when you\'re back.');
+      }
+    } catch {
+      Alert.alert('Error', 'Could not update check-in status. Please try again.');
+    } finally {
+      setTogglingPause(false);
     }
   }
 
@@ -182,7 +206,7 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Check-in schedule link */}
+      {/* Check-in schedule link + pause toggle */}
       <Text style={styles.sectionTitle}>App Settings</Text>
       <TouchableOpacity style={styles.navRow} onPress={() => navigation.navigate('Schedule')}>
         <View>
@@ -191,6 +215,23 @@ export default function SettingsScreen() {
         </View>
         <Text style={styles.navRowArrow}>›</Text>
       </TouchableOpacity>
+
+      <View style={styles.navRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.navRowLabel}>Pause Check-ins</Text>
+          <Text style={styles.navRowSub}>
+            {isPaused ? 'Check-ins are paused — tap to resume' : 'Suppress alerts while travelling or away'}
+          </Text>
+        </View>
+        <Switch
+          value={isPaused}
+          onValueChange={handleTogglePause}
+          disabled={togglingPause}
+          trackColor={{ false: '#ccc', true: '#f59e0b' }}
+          thumbColor="#fff"
+          accessibilityLabel={isPaused ? 'Resume check-ins' : 'Pause check-ins'}
+        />
+      </View>
 
       {/* Change password */}
       <Text style={styles.sectionTitle}>Account</Text>

@@ -1,9 +1,31 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { FastifyInstance } from 'fastify';
+import jwt from 'jsonwebtoken';
 import { resetDatabase, getPrismaInstance } from '../utils/test-db';
 import { testUsers, seedTestUser } from '../utils/test-fixtures';
+import { registerUserRoutes } from './users';
+import { createTestServer, startTestServer, stopTestServer } from '../utils/test-server';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+function makeToken(userId: string) {
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '1h' });
+}
 
 describe('Users Module', () => {
   const prisma = getPrismaInstance();
+
+  let server: FastifyInstance;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    server = await createTestServer();
+    await registerUserRoutes(server, prisma);
+    baseUrl = await startTestServer(server);
+  });
+
+  afterAll(async () => {
+    await stopTestServer(server);
+  });
 
   beforeEach(async () => {
     await resetDatabase();
@@ -303,6 +325,60 @@ describe('Users Module', () => {
       });
 
       expect(deleted).toBeNull();
+    });
+  });
+
+  describe('POST /users/:id/pause and /resume', () => {
+    it('pauses check-ins and sets pausedAt', async () => {
+      const user = await seedTestUser(testUsers.alice.email, testUsers.alice.fullName);
+      const token = makeToken(user.id);
+
+      const res = await fetch(`${baseUrl}/users/${user.id}/pause`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { isPaused: boolean; pausedAt: string };
+      expect(body.isPaused).toBe(true);
+      expect(body.pausedAt).not.toBeNull();
+
+      const db = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+      expect(db.isPaused).toBe(true);
+      expect(db.pausedAt).not.toBeNull();
+    });
+
+    it('resumes check-ins and clears pausedAt', async () => {
+      const user = await seedTestUser(testUsers.alice.email, testUsers.alice.fullName);
+      await prisma.user.update({ where: { id: user.id }, data: { isPaused: true, pausedAt: new Date() } });
+      const token = makeToken(user.id);
+
+      const res = await fetch(`${baseUrl}/users/${user.id}/resume`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { isPaused: boolean; pausedAt: string | null };
+      expect(body.isPaused).toBe(false);
+      expect(body.pausedAt).toBeNull();
+
+      const db = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+      expect(db.isPaused).toBe(false);
+      expect(db.pausedAt).toBeNull();
+    });
+
+    it('rejects pause request for another user', async () => {
+      const alice = await seedTestUser(testUsers.alice.email, testUsers.alice.fullName);
+      const bob = await seedTestUser(testUsers.bob.email, testUsers.bob.fullName);
+      const aliceToken = makeToken(alice.id);
+
+      const res = await fetch(`${baseUrl}/users/${bob.id}/pause`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${aliceToken}` },
+      });
+
+      expect(res.status).toBe(403);
     });
   });
 });

@@ -20,7 +20,7 @@ export async function detectMissedCheckins(
   now: Date = new Date()
 ): Promise<TriggeredAlert[]> {
   const pending = await prisma.checkinEvent.findMany({
-    where: { status: 'pending' },
+    where: { status: 'pending', user: { isPaused: false } },
     include: {
       user: { include: { checkinSchedule: true } },
       alertEvent: true,
